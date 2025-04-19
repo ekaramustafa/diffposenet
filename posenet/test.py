@@ -2,7 +2,6 @@ from model import PoseNet
 import torch
 
 def main():
-    model = PoseNet()
 
     model = PoseNet()
     dummy = torch.randn(4, 6, 3, 224, 224)
