@@ -1,4 +1,5 @@
 import torch
+from torch.nn import functional as F
 import torch.nn as nn
 import torchvision.models as models
 
@@ -33,3 +34,15 @@ class PoseNet(nn.Module):
         q = q / q.norm(dim=1, keepdim=True)     # normalize quaternion
 
         return t, q
+
+    def pose_loss(self, t_pred, q_pred, t_gt, q_gt, lambda_q=1.0):
+        loss_t = F.mse_loss(t_pred, t_gt)
+        loss_q = self.quaternion_loss(q_pred = q_pred, q_gt = q_gt)
+        return loss_t + lambda_q * loss_q
+    
+    # geosedic loss
+    def quaternion_loss(self, q_pred, q_gt):
+        q_pred = F.normalize(q_pred, dim=1)
+        q_gt = F.normalize(q_gt, dim=1)
+        dot = torch.sum(q_pred * q_gt, dim=1) 
+        return torch.mean(1.0 - torch.abs(dot))
