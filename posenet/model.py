@@ -15,7 +15,7 @@ class PoseNet(nn.Module):
         self.lstm = nn.LSTM(input_size=self.feature_dim, hidden_size=250, num_layers=2, batch_first=True)
 
         # Step 4: Regress 6D pose (translation + rotation)
-        self.pose_fc = nn.Linear(250, 6)
+        self.pose_fc = nn.Linear(250, 7)
 
     def forward(self, x):
         batch_size, seq_len, C, H, W = x.shape

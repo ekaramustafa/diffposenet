@@ -1,10 +1,10 @@
 from tartanair import TartanAirDataset
 
-dataset = TartanAirDataset(root_dir="data/image_left")
+dataset = TartanAirDataset(root_dir="data/image_left", seq_len=2)
 
 print(len(dataset))
 
 
-image1, image2, translation_vector, rotation_quaternion = dataset[0]
+images, translation_vector, rotation_quaternion = dataset[0]
 
-print(image1.shape, image2.shape, translation_vector, rotation_quaternion)
+print(images.shape, translation_vector.shape, rotation_quaternion.shape)

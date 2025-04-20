@@ -1,18 +1,19 @@
 import os
 import numpy as np
+import torch
 from torch.utils.data import Dataset
 from torchvision import transforms
 from PIL import Image
 
 class TartanAirDataset(Dataset):
-    def __init__(self, root_dir, transform=None):
+    def __init__(self, root_dir, seq_len=2, transform=None):
         """
         root_dir: path to the root directory of the TartanAir dataset
         transform: optional transform to be applied to the images
 
         Note that the images and the pose text information must be in the same directory.
         Pose txt file must include [tx, ty, tz, qx, qy, qz, qw] in its every line.
-        
+
         For example, the directory structure should be:
         TartanAir/
         ├── root_dir/
@@ -24,8 +25,9 @@ class TartanAirDataset(Dataset):
         """
         self.root_dir = root_dir
         self.transform = transform
-        self.image_paths = []
+        self.images = []
         self.ground_truth_pose = []
+        self.seq_len = seq_len
 
         self.only_left = True
 
@@ -62,9 +64,13 @@ class TartanAirDataset(Dataset):
                     temp_images.extend(img_files)
                     temp_poses.extend(poses)
         
-        for i in range(len(temp_images) - 1):
-            self.image_paths.append((temp_images[i], temp_images[i+1]))
-            self.ground_truth_pose.append(self._compute_relative_pose(temp_poses[i], temp_poses[i+1]))
+        loaded_images = [self._load_image(img_path) for img_path in temp_images]
+        
+        for i in range(len(loaded_images) - self.seq_len):
+            sequence = loaded_images[i:i+self.seq_len]
+            poses = [self._compute_relative_pose(temp_poses[j], temp_poses[j+1]) for j in range(i, i + self.seq_len - 1)]
+            self.images.append(sequence)
+            self.ground_truth_pose.append(poses)
 
     def _compute_relative_pose(self, pose1, pose2):
         t1 = np.array(pose1[:3])
@@ -84,7 +90,7 @@ class TartanAirDataset(Dataset):
         R1 = self._quaternion_to_rotation_matrix(q1)
         t_rel = np.dot(R1.T, (t2 - t1))
 
-        return list(t_rel) + list(q_rel)
+        return torch.from_numpy(t_rel).float(), torch.from_numpy(q_rel).float()
     
     def _quaternion_multiply(self, q1, q2):
         x1, y1, z1, w1 = q1
@@ -123,18 +129,17 @@ class TartanAirDataset(Dataset):
         return R
 
     def __len__(self):
-        return len(self.image_paths)
+        return len(self.images)
 
     def __getitem__(self, idx):
-        image_path1, image_path2 = self.image_paths[idx]
-        image1 = self._load_image(image_path1)
-        image2 = self._load_image(image_path2)
-        
-        rel_pose = self.ground_truth_pose[idx]
-        translation_vector = rel_pose[:3]
-        rotation_quaternion = rel_pose[3:]
-        
-        return image1, image2, translation_vector, rotation_quaternion
+        sequence = self.images[idx]  
+        poses = self.ground_truth_pose[idx]  # List of (t, q)
+
+        images = torch.stack(sequence, dim=0)  # Shape: [seq_len, C, H, W]
+        translations = torch.stack([p[0] for p in poses], dim=0)  # [seq_len-1, 3]
+        rotations = torch.stack([p[1] for p in poses], dim=0)     # [seq_len-1, 4]
+
+        return images, translations, rotations
     
     def _load_image(self, image_path):
         image = Image.open(image_path)
