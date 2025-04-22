@@ -14,7 +14,6 @@ def compute_normal_flow(img1: np.ndarray, img2: np.ndarray) -> np.ndarray:
 
     u = dense_optical_flow[:, :, 0]
     v = dense_optical_flow[:, :, 1]
-
     Ix = cv2.Sobel(img1, cv2.CV_64F, 1, 0, ksize=5)
     Iy = cv2.Sobel(img1, cv2.CV_64F, 0, 1, ksize=5)
 
@@ -26,5 +25,4 @@ def compute_normal_flow(img1: np.ndarray, img2: np.ndarray) -> np.ndarray:
     n_y = normal_flow_scalar * Iy
 
     normal_flow = np.stack((n_x, n_y), axis=-1)
-
     return normal_flow
