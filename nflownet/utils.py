@@ -1,5 +1,7 @@
 import cv2
+import torch 
 import numpy as np
+
 
 def compute_normal_flow(img1: np.ndarray, img2: np.ndarray) -> np.ndarray:
     """
@@ -26,3 +28,11 @@ def compute_normal_flow(img1: np.ndarray, img2: np.ndarray) -> np.ndarray:
 
     normal_flow = np.stack((n_x, n_y), axis=-1)
     return normal_flow
+
+
+def ProjectionEndpointError():
+    pass
+
+def EndpointErrorMap():
+    pass
+    
