@@ -36,13 +36,16 @@ class PoseNet(nn.Module):
         return t, q
 
     def pose_loss(self, t_pred, q_pred, t_gt, q_gt, lambda_q=1.0):
-        loss_t = F.mse_loss(t_pred, t_gt)
+        loss_t = F.mse_loss(t_pred, t_gt.squeeze(1))
         loss_q = self.quaternion_loss(q_pred = q_pred, q_gt = q_gt)
         return loss_t + lambda_q * loss_q
     
-    # geosedic loss
     def quaternion_loss(self, q_pred, q_gt):
-        q_pred = F.normalize(q_pred, dim=1)
-        q_gt = F.normalize(q_gt, dim=1)
-        dot = torch.sum(q_pred * q_gt, dim=1) 
-        return torch.mean(1.0 - torch.abs(dot))
+        q_pred = F.normalize(q_pred, p=2, dim=1)
+        q_gt = F.normalize(q_gt, p=2, dim=1)
+        
+        dot = torch.sum(q_pred * q_gt, dim=1)
+        dot = torch.clamp(dot, -1.0, 1.0)
+        
+        loss = 1.0 - torch.abs(dot)
+        return torch.mean(loss)
