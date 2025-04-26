@@ -1,0 +1,2 @@
+amusement/Easy/image_left.zip 5.18630092
+amusement/Hard/image_left.zip 3.948253128
