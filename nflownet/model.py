@@ -106,3 +106,6 @@ class NFlowNet(nn.Module):
         x = self.bottleneck(x)
         x = self.decoder(x)
         return x
+
+    def loss(self, n_pred, n_truth):
+        return torch.mean((prediction - groundtruth) ** 2)
