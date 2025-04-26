@@ -55,7 +55,7 @@ class NFlowNet(nn.Module):
     def __init__(
         self,
         depth: int = 2,
-        in_channels: int = 1,
+        in_channels: int = 6,
         base_channels: int = 37,    
         expansion_rate: int = 2,     
     ):
@@ -96,14 +96,14 @@ class NFlowNet(nn.Module):
             nn.BatchNorm2d(int(num_channels/(expansion_rate**2))),
             nn.ReLU(inplace=True),
 
-            nn.ConvTranspose2d(int(num_channels/(expansion_rate**2)), out_channels, kernel_size=7, stride=1, padding=3)
+            nn.ConvTranspose2d(int(num_channels/(expansion_rate**2)), self.out_channels, kernel_size=7, stride=1, padding=3)
         )
 
-    def foward(self, x):
+    def forward(self, x):
         x = self.encoder(x)
         x = self.bottleneck(x)
         x = self.decoder(x)
         return x
 
     def loss(self, n_pred, n_truth):
-        return torch.mean((prediction - groundtruth) ** 2)
+        return torch.mean((n_pred - n_truth) ** 2)
