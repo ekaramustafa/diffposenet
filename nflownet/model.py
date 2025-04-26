@@ -48,7 +48,6 @@ class NFlowNet(nn.Module):
     """
     depth: χ, how many residual/transpose blocks to repeat
     in_channels: input image channels (e.g., 1 for grayscale, 3 for RGB)
-    out_channels: output image channels (e.g., 1 for grayscale, 3 for RGB)
     base_channels: This is the number of filters used for the first convolution layer
     expansion_rate: factor by which the number of neurons are increased after every block
     """
@@ -57,12 +56,11 @@ class NFlowNet(nn.Module):
         self,
         depth: int = 2,
         in_channels: int = 1,
-        out_channels: int = 1,
         base_channels: int = 37,    
         expansion_rate: int = 2,     
     ):
         super().__init__()
-
+        self.out_channels = 1
         num_channels = base_channels
 
         self.encoder = nn.Sequential(
