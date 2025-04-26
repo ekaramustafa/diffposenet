@@ -37,6 +37,7 @@ def compute_normal_flow(img1: np.ndarray, img2: np.ndarray) -> np.ndarray:
     return normal_flow
 
 
+
 def ProjectionEndpointError(grad_x, grad_y, u, n_hat):
     """
     Computes the Projection Endpoint Error (PEE).
@@ -58,7 +59,6 @@ def ProjectionEndpointError(grad_x, grad_y, u, n_hat):
     error = np.abs(n_hat - projection)
 
     PEE = np.mean(error)
-
     return PEE
 
 
