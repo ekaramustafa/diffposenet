@@ -44,11 +44,8 @@ def compute_image_gradients(image_tensor):
     Computes ∇I = (∂I/∂x, ∂I/∂y) given an input image tensor. 
     """
 
-    to_tensor = transforms.ToTensor()
-    to_pil = transforms.ToPILImage()
-
     # --- Prepare the input tensor ---
-    x = image_tensor.unsqueeze(0)  # Shape: (1, 1, H, W)
+    x = image_tensor.unsqueeze(0).float() 
 
     # --- Define Sobel filters ---
     sobel_x = np.array([[1, 0, -1],
@@ -60,16 +57,16 @@ def compute_image_gradients(image_tensor):
                         [-1, -2, -1]], dtype=np.float32)
 
     # --- Create convolution layers with Sobel kernels ---
-    conv_x = nn.Conv2d(1, 1, kernel_size=3, stride=1, padding=1, bias=False)
-    conv_y = nn.Conv2d(1, 1, kernel_size=3, stride=1, padding=1, bias=False)
+    conv_x = nn.Conv2d(1, 1, kernel_size=3, stride=1, padding=1, bias=False).float()
+    conv_y = nn.Conv2d(1, 1, kernel_size=3, stride=1, padding=1, bias=False).float()
 
     # Assign weights
     conv_x.weight = nn.Parameter(torch.from_numpy(sobel_x).unsqueeze(0).unsqueeze(0))
     conv_y.weight = nn.Parameter(torch.from_numpy(sobel_y).unsqueeze(0).unsqueeze(0))
 
     # --- Compute gradients ---
-    grad_x = conv_x(x)
-    grad_y = conv_y(x)
+    grad_x = conv_x(x).squeeze(0)
+    grad_y = conv_y(x).squeeze(0)
 
     return grad_x, grad_y
 
