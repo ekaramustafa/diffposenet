@@ -110,6 +110,3 @@ class NFlowNet(nn.Module):
         x = crop_to_target_size(x, shape_temp[2], shape_temp[3])
         x = self.decoder(x)
         return x
-
-    def loss(self, n_pred, n_truth):
-        return torch.mean((n_pred - n_truth) ** 2)
