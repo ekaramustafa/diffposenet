@@ -45,7 +45,7 @@ class TransposedResidualBlock(nn.Module):
 
 
  
-class NFlowNet2(nn.Module):
+class NFlowNet(nn.Module):
     """
     depth: χ, how many residual/transpose blocks to repeat
     in_channels: input image channels (e.g., 1 for grayscale, 3 for RGB)
