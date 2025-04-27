@@ -1,5 +1,6 @@
 import torch 
 import torch.nn as nn
+from utils import pad_to_divisible_by_4, crop_to_target_size
 
 
 class ResidualBlock(nn.Module):
@@ -44,7 +45,7 @@ class TransposedResidualBlock(nn.Module):
 
 
  
-class NFlowNet(nn.Module):
+class NFlowNet2(nn.Module):
     """
     depth: χ, how many residual/transpose blocks to repeat
     in_channels: input image channels (e.g., 1 for grayscale, 3 for RGB)
@@ -64,7 +65,7 @@ class NFlowNet(nn.Module):
         num_channels = base_channels
 
         self.encoder = nn.Sequential(
-            nn.Conv2d(in_channels, num_channels, kernel_size=7, stride=2, padding=3),
+            nn.Conv2d(in_channels, num_channels, kernel_size=7, stride=2, padding=2),
             nn.BatchNorm2d(num_channels),
             nn.ReLU(inplace=True),
 
@@ -82,7 +83,7 @@ class NFlowNet(nn.Module):
             num_channels = int(num_channels*expansion_rate)
         for _ in range(depth):
             bottleneck_layers.append(TransposedResidualBlock(num_channels))
-            bottleneck_layers.append(nn.ConvTranspose2d(num_channels, int(num_channels/expansion_rate), kernel_size=3, stride=2, padding=1))
+            bottleneck_layers.append(nn.ConvTranspose2d(num_channels, int(num_channels/expansion_rate), kernel_size=3, stride=2, padding=1, output_padding=1))
             num_channels = int(num_channels/expansion_rate)
 
         self.bottleneck = nn.Sequential(*bottleneck_layers)
@@ -92,7 +93,7 @@ class NFlowNet(nn.Module):
             nn.BatchNorm2d(int(num_channels/expansion_rate)),
             nn.ReLU(inplace=True),
 
-            nn.ConvTranspose2d(int(num_channels/expansion_rate), int(num_channels/(expansion_rate**2)), kernel_size=7, stride=2, padding=3),
+            nn.ConvTranspose2d(int(num_channels/expansion_rate), int(num_channels/(expansion_rate**2)), kernel_size=7, stride=2, padding=2, output_padding=1),
             nn.BatchNorm2d(int(num_channels/(expansion_rate**2))),
             nn.ReLU(inplace=True),
 
@@ -101,7 +102,10 @@ class NFlowNet(nn.Module):
 
     def forward(self, x):
         x = self.encoder(x)
+        shape_temp = x.shape
+        x = pad_to_divisible_by_4(x)
         x = self.bottleneck(x)
+        x = crop_to_target_size(x, shape_temp[2], shape_temp[3])
         x = self.decoder(x)
         return x
 
