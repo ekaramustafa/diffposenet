@@ -46,7 +46,7 @@ def pad_to_divisible_by_4(tensor):
     pad_h = (4 - height % 4) % 4  # Compute how much padding is needed for height
     pad_w = (4 - width % 4) % 4  # Compute how much padding is needed for width
     # Apply padding (padding is applied as [left, right, top, bottom])
-    return nn.functional.pad(tensor, (0, pad_w, 0, pad_h))
+    return torch.nn.functional.pad(tensor, (0, pad_w, 0, pad_h))
 
 
 def crop_to_target_size(tensor, target_height, target_width):
