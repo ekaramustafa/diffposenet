@@ -33,6 +33,26 @@ def compute_normal_flow(img1, img2):
 
     return normal_flow
 
+
+
+def pad_to_divisible_by_4(tensor):
+    # Calculate padding to make height and width divisible by 4
+    height, width = tensor.shape[2], tensor.shape[3]
+    pad_h = (4 - height % 4) % 4  # Compute how much padding is needed for height
+    pad_w = (4 - width % 4) % 4  # Compute how much padding is needed for width
+    # Apply padding (padding is applied as [left, right, top, bottom])
+    return nn.functional.pad(tensor, (0, pad_w, 0, pad_h))
+
+
+def crop_to_target_size(tensor, target_height, target_width):
+    """Crop tensor to the target size (height, width)."""
+    _, _, h, w = tensor.shape
+    start_h = (h - target_height) // 2
+    start_w = (w - target_width) // 2
+    return tensor[:, :, start_h:start_h+target_height, start_w:start_w+target_width]
+
+
+
 # def compute_normal_flow(img1: torch.Tensor, img2: torch.Tensor) -> torch.Tensor:
 #     """
 #     Computes the normal flow between two input images (as PyTorch tensors).
