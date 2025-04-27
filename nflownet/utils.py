@@ -1,43 +1,77 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-import cv2
 import numpy as np
+from torchvision import transforms
+from torch.autograd import Variable
+from PIL import Image
 from torchvision.transforms import Grayscale
+
+
 
 def compute_normal_flow(opt_flow: torch.tensor, img_pair: torch.tensor):
     """
     Args:
-        opt_flow: (B, 2, H, W) or (2, H, W) tensor containing horizontal (u) and vertical (v) optical flow components
-        image_pair: (B, 6, H, W) or (6, H, W) tensor containing concatenated image pairs (e.g., [img1, img2])
+        opt_flow: (2, H, W) tensor containing horizontal (u) and vertical (v) optical flow components
+        image_pair: (6, H, W) tensor containing concatenated image pairs (e.g., [img1, img2])
 
     Returns:
-        normal_flow_magnitude: (B, 1, H, W) tensor containing normal flow for the image pair
+        normal_flow_magnitude: (1, H, W) tensor containing normal flow magnitude for the image pair
     """
     grayscale_transform = Grayscale(num_output_channels=1)
 
     u = opt_flow[0:1, :, :]
     v = opt_flow[1:2, :, :]
 
-    sobel_x = torch.tensor([[1, 0, -1],
-                            [2, 0, -2],
-                            [1, 0, -1]], dtype=torch.float32, device=opt_flow.device).unsqueeze(0).unsqueeze(0) / 8.0
-    sobel_y = torch.tensor([[1, 2, 1],
-                            [0, 0, 0],
-                            [-1, -2, -1]], dtype=torch.float32, device=opt_flow.device).unsqueeze(0).unsqueeze(0) / 8.0
+    ref_img_gray = grayscale_transform(img_pair[:3, :, :])
 
-    img1 = img_pair[:3, :, :]
-    img1_gray = grayscale_transform(img1)
+    grad_x, grad_y = compute_image_gradients(ref_img_gray)
+    grad_norm_sq = grad_x ** 2 + grad_y ** 2
+    grad_norm_sq[grad_norm_sq == 0] = 1e-6
 
-    grad_x = F.conv2d(img1_gray, sobel_x, padding=1)  # ∂I/∂x
-    grad_y = F.conv2d(img1_gray, sobel_y, padding=1)  # ∂I/∂y
-
-    grad_mag_sq = grad_x ** 2 + grad_y ** 2 + 1e-6
     dot_product = u * grad_x + v * grad_y
+    scale = dot_product / grad_norm_sq
 
-    normal_flow = (dot_product / grad_mag_sq)
-    return normal_flow
+    n_x = scale * grad_x
+    n_y = scale * grad_y
+    
+    normal_flow_magnitude = torch.sqrt(n_x ** 2 + n_y ** 2)
+    return normal_flow_magnitude
 
+
+
+def compute_image_gradients(image_tensor):
+    """
+    Computes ∇I = (∂I/∂x, ∂I/∂y) given an input image tensor. 
+    """
+
+    to_tensor = transforms.ToTensor()
+    to_pil = transforms.ToPILImage()
+
+    # --- Prepare the input tensor ---
+    x = image_tensor.unsqueeze(0)  # Shape: (1, 1, H, W)
+
+    # --- Define Sobel filters ---
+    sobel_x = np.array([[1, 0, -1],
+                        [2, 0, -2],
+                        [1, 0, -1]], dtype=np.float32)
+
+    sobel_y = np.array([[1, 2, 1],
+                        [0, 0, 0],
+                        [-1, -2, -1]], dtype=np.float32)
+
+    # --- Create convolution layers with Sobel kernels ---
+    conv_x = nn.Conv2d(1, 1, kernel_size=3, stride=1, padding=1, bias=False)
+    conv_y = nn.Conv2d(1, 1, kernel_size=3, stride=1, padding=1, bias=False)
+
+    # Assign weights
+    conv_x.weight = nn.Parameter(torch.from_numpy(sobel_x).unsqueeze(0).unsqueeze(0))
+    conv_y.weight = nn.Parameter(torch.from_numpy(sobel_y).unsqueeze(0).unsqueeze(0))
+
+    # --- Compute gradients ---
+    grad_x = conv_x(x)
+    grad_y = conv_y(x)
+
+    return grad_x, grad_y
 
 
 def pad_to_divisible_by_4(tensor):
