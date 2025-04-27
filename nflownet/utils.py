@@ -7,30 +7,45 @@ import torch
 import torch.nn.functional as F
 import cv2
 import numpy as np
+from torchvision.transforms import Grayscale
 
 
-def compute_normal_flow(img1, img2):
-    sobel_x = torch.tensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], dtype=torch.float32, device=img1.device).view(1, 1, 3, 3)
-    sobel_y = torch.tensor([[-1, -2, -1], [0, 0, 0], [1, 2, 1]], dtype=torch.float32, device=img1.device).view(1, 1, 3, 3)
-    
-    # Compute gradients for both images and average
-    grad_x = F.conv2d(img1.mean(dim=1, keepdim=True), sobel_x, padding=1)
-    grad_y = F.conv2d(img1.mean(dim=1, keepdim=True), sobel_y, padding=1)
+def compute_normal_flow(opt_flow: torch.tensor, img_pair: torch.tensor):
+    """
+    Args:
+        opt_flow: (B, 2, H, W) or (2, H, W) tensor containing horizontal (u) and vertical (v) optical flow components
+        image_pair: (B, 6, H, W) or (6, H, W) tensor containing concatenated image pairs (e.g., [img1, img2])
 
-    flow = img2 - img1  # (B=1, C=1, H, W)
+    Returns:
+        normal_flow_magnitude: (B, 1, H, W) tensor containing normal flow for the image pair
+    """
 
-    u = flow
-    v = flow
+    grayscale_transform = Grayscale(num_output_channels=1)
+    if opt_flow.ndim == 3:
+        opt_flow = opt_flow.unsqueeze(0)
+    if img_pair.ndim == 3:
+        img_pair = img_pair.unsqueeze(0)
 
-    grad_mag_sq = grad_x ** 2 + grad_y ** 2
-    grad_mag_sq = torch.where(grad_mag_sq == 0, torch.full_like(grad_mag_sq, 1e-5), grad_mag_sq)
+    B, _, H, W = opt_flow.shape
+    u = opt_flow[:, 0:1, :, :]
+    v = opt_flow[:, 1:2, :, :]
 
-    normal_flow_scalar = (u * grad_x + v * grad_y) / grad_mag_sq
-    n_x = normal_flow_scalar * grad_x
-    n_y = normal_flow_scalar * grad_y
+    sobel_x = torch.tensor([[1, 0, -1],
+                            [2, 0, -2],
+                            [1, 0, -1]], dtype=torch.float32, device=opt_flow.device).unsqueeze(0).unsqueeze(0) / 8.0
+    sobel_y = torch.tensor([[1, 2, 1],
+                            [0, 0, 0],
+                            [-1, -2, -1]], dtype=torch.float32, device=opt_flow.device).unsqueeze(0).unsqueeze(0) / 8.0
 
-    normal_flow = torch.sqrt(n_x.squeeze(0).squeeze(0) ** 2 + n_y.squeeze(0).squeeze(0) ** 2)
+    img1 = img_pair[:, :3, :, :]
+    img1_gray = grayscale_transform(img1)
 
+    grad_x = F.conv2d(img1_gray, sobel_x, padding=1)  # ∂I/∂x
+    grad_y = F.conv2d(img1_gray, sobel_y, padding=1)  # ∂I/∂y
+
+    grad_mag_sq = grad_x ** 2 + grad_y ** 2 + 1e-6
+    dot_product = u * grad_x + v * grad_y
+    normal_flow = (dot_product / grad_mag_sq)
     return normal_flow
 
 
