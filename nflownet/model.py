@@ -104,7 +104,7 @@ class NFlowNet(nn.Module):
 
     def forward(self, x):
         x = self.encoder(x)
-        shape_temp = x.shape
+        shape_temp = x.size()
         x = pad_to_divisible_by_4(x)
         x = self.bottleneck(x)
         x = crop_to_target_size(x, shape_temp[2], shape_temp[3])
