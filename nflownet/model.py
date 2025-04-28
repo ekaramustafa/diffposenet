@@ -63,7 +63,7 @@ class NFlowNet(nn.Module):
         expansion_rate: int = 2,     
     ):
         super().__init__()
-        self.out_channels = 1
+        self.out_channels = 2
         num_channels = base_channels
 
         self.encoder = nn.Sequential(
