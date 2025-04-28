@@ -8,16 +8,17 @@ from torchvision.transforms import Grayscale
 
 
 
-def compute_normal_flow(opt_flow: torch.tensor, img_pair: torch.tensor):
+def compute_normal_flow(opt_flow: torch.tensor, img_pair: torch.tensor, magnitude: bool=False):
     """
     Computes the normal flow magnitude from optical flow and an image pair.
 
     Args:
     - opt_flow (torch.Tensor): (2, H, W) tensor containing the horizontal (u) and vertical (v) optical flow components.
     - image_pair (torch.Tensor): (6, H, W) tensor containing two concatenated RGB images (e.g., [img1, img2]).
+    - magnitude (bool): Whether to return just the magnitude of the normal flow (default False).
     
     Returns:
-    - normal_flow_magnitude (torch.Tensor): (1, H, W) tensor containing the normal flow magnitude for the image pair.
+    - torch.Tensor: The normal flow or the magnitude of the flow, depending on the `magnitude` flag.
     """
     grayscale_transform = Grayscale(num_output_channels=1)
 
@@ -34,9 +35,11 @@ def compute_normal_flow(opt_flow: torch.tensor, img_pair: torch.tensor):
 
     n_x = scale * grad_x
     n_y = scale * grad_y
-    
-    normal_flow_magnitude = torch.sqrt(n_x ** 2 + n_y ** 2)
-    return normal_flow_magnitude
+
+    if magnitude:
+        return torch.sqrt(n_x ** 2 + n_y ** 2)
+    else:
+        return torch.stack((n_x, n_y), dim=0)
 
 
 
