@@ -29,7 +29,7 @@ class PairedImageDataset(Dataset):
         opt_flow = np.load(self.opt_flow_paths[idx])
         opt_flow = torch.from_numpy(opt_flow).permute(2, 0, 1).float()
 
-        normal_flow = compute_normal_flow(opt_flow, paired)
+        normal_flow = compute_normal_flow(opt_flow, paired, magnitude=False)
         return paired, normal_flow
 
 
