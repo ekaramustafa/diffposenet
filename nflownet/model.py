@@ -77,17 +77,17 @@ class NFlowNet(nn.Module):
         num_channels = int(num_channels*expansion_rate)
 
 
-        bottleneck_layers = []
+        residual_layers = []
         for _ in range(depth):
-            bottleneck_layers.append(ResidualBlock(num_channels))
-            bottleneck_layers.append(nn.Conv2d(num_channels, num_channels*expansion_rate, kernel_size=3, stride=2, padding=1))
+            residual_layers.append(ResidualBlock(num_channels))
+            residual_layers.append(nn.Conv2d(num_channels, num_channels*expansion_rate, kernel_size=3, stride=2, padding=1))
             num_channels = int(num_channels*expansion_rate)
         for _ in range(depth):
-            bottleneck_layers.append(TransposedResidualBlock(num_channels))
-            bottleneck_layers.append(nn.ConvTranspose2d(num_channels, int(num_channels/expansion_rate), kernel_size=3, stride=2, padding=1, output_padding=1))
+            residual_layers.append(TransposedResidualBlock(num_channels))
+            residual_layers.append(nn.ConvTranspose2d(num_channels, int(num_channels/expansion_rate), kernel_size=3, stride=2, padding=1, output_padding=1))
             num_channels = int(num_channels/expansion_rate)
 
-        self.bottleneck = nn.Sequential(*bottleneck_layers)
+        self.residual = nn.Sequential(*residual_layers)
 
         self.decoder = nn.Sequential(
             nn.ConvTranspose2d(num_channels, int(num_channels/expansion_rate), kernel_size=5, stride=2, padding=2),
@@ -105,7 +105,7 @@ class NFlowNet(nn.Module):
         x = self.encoder(x)
         shape_temp = x.size()
         x = pad_to_divisible_by_4(x)
-        x = self.bottleneck(x)
+        x = self.residual(x)
         x = crop_to_target_size(x, shape_temp[2], shape_temp[3])
         x = self.decoder(x)
         return x
