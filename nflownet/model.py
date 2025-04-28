@@ -51,7 +51,7 @@ class NFlowNet(nn.Module):
     """
     depth: χ, how many residual/transpose blocks to repeat
     in_channels: input image channels (6 by default)
-    out_channels output normal flow channels (2 by default)
+    out_channels output normal flow channels (1 by default)                           # will be changed
     base_channels: the number of filters used for the first convolution layer
     expansion_rate: factor by which the number of neurons are increased after every block
     """
@@ -60,7 +60,7 @@ class NFlowNet(nn.Module):
         self,
         depth: int = 2,
         in_channels: int = 6,
-        out_channels: int = 2, 
+        out_channels: int = 1,  
         base_channels: int = 37,    
         expansion_rate: int = 2,     
     ):
