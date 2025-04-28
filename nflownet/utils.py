@@ -34,13 +34,12 @@ def compute_normal_flow(opt_flow: torch.tensor, img_pair: torch.tensor, magnitud
     scale = dot_product / grad_norm_sq
 
     n_x = scale * grad_x
-    print(n_x.shape)
     n_y = scale * grad_y
 
     if magnitude:
         return torch.sqrt(n_x ** 2 + n_y ** 2)
     else:
-        return torch.stack((n_x, n_y), dim=0)
+        return torch.cat([n_x, n_y], dim=0)
 
 
 
