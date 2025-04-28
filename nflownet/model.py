@@ -50,8 +50,9 @@ class TransposedResidualBlock(nn.Module):
 class NFlowNet(nn.Module):
     """
     depth: χ, how many residual/transpose blocks to repeat
-    in_channels: input image channels (e.g., 1 for grayscale, 3 for RGB)
-    base_channels: This is the number of filters used for the first convolution layer
+    in_channels: input image channels (6 by default)
+    out_channels output normal flow channels (2 by default)
+    base_channels: the number of filters used for the first convolution layer
     expansion_rate: factor by which the number of neurons are increased after every block
     """
 
@@ -59,11 +60,11 @@ class NFlowNet(nn.Module):
         self,
         depth: int = 2,
         in_channels: int = 6,
+        out_channels: int = 2, 
         base_channels: int = 37,    
         expansion_rate: int = 2,     
     ):
         super().__init__()
-        self.out_channels = 2
         num_channels = base_channels
 
         self.encoder = nn.Sequential(
@@ -99,7 +100,7 @@ class NFlowNet(nn.Module):
             nn.BatchNorm2d(int(num_channels/(expansion_rate**2))),
             nn.ReLU(inplace=True),
 
-            nn.ConvTranspose2d(int(num_channels/(expansion_rate**2)), self.out_channels, kernel_size=7, stride=1, padding=3)
+            nn.ConvTranspose2d(int(num_channels/(expansion_rate**2)), out_channels, kernel_size=7, stride=1, padding=3)
         )
 
     def forward(self, x):
