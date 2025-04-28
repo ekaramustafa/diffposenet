@@ -8,7 +8,7 @@ from torchvision.transforms import Grayscale
 
 
 
-def compute_normal_flow(opt_flow: torch.tensor, img_pair: torch.tensor, magnitude: bool=False):                 
+def compute_normal_flow(opt_flow: torch.Tensor, img_pair: torch.Tensor, magnitude: bool=False):                 
     """
     Computes the normal flow or its magnitude from optical flow and an image pair.
 
@@ -92,15 +92,16 @@ def crop_to_target_size(tensor, target_height, target_width):
 
 
 
-def ProjectionEndpointError(grad_x, grad_y, u, n_hat):            # <- WILL BE CHANGED
+def ProjectionEndpointError(grad_x: torch.Tensor, grad_y: torch.Tensor, opt_flow:torch.Tensor, normal_pred:torch.Tensor):            
     """
     Computes the Projection Endpoint Error (PEE).
+    Reference: https://arxiv.org/html/2412.11284v1#S2.E2
 
     Args:
     - grad_x (torch.Tensor): gradient of the image along x-axis (∂I/∂x)
     - grad_y (torch.Tensor): gradient of the image along y-axis (∂I/∂y)
-    - proj_opt_flow (torch.Tensor): the 
-    - n_hat: np.ndarray, ground-truth normal flow scalar per pixel
+    - proj_opt_flow (torch.Tensor): projected optical flow 
+    - normal_flow (torch.Tensor): ground-truth normal flow 
 
     Returns:
     - PEE: float, the mean projection endpoint error over all pixels
@@ -109,14 +110,31 @@ def ProjectionEndpointError(grad_x, grad_y, u, n_hat):            # <- WILL BE C
     grad_norm_squared = grad_x**2 + grad_y**2
     grad_norm_squared[grad_norm_squared == 0] = 1e-5
 
-    projection = (grad_x * u[..., 0] + grad_y * u[..., 1]) / grad_norm_squared
+    projection = (grad_x * proj_opt_flow[..., 0] + grad_y * proj_opt_flow[..., 1]) / grad_norm_squared
     error = np.abs(n_hat - projection)
 
     PEE = np.mean(error)
     return PEE
 
 
+def compute_magnitude_and_direction(flow: torch.Tensor):
+    """
+    Computes the magnitude and the phase (direction) of the optical/normal flow given its 2 components
 
-def EndpointErrorMap():
-    pass
+    Args:
+    - flow (torch.Tensor): A tensor of shape (2,H,W) denoting optical/normal flow
+
+    Returns:
+    - magnitude (torch.Tensor): A tensor of shape (1,H,W) denoting the magnitude of the flow at each pixel
+    - phase (torch.Tensor): A tensor of shape (1,H,W) denoting the direction of the flow at each pixel
+    """
+    magnitude = torch.sqrt(flow[0]**2 + flow[1]**2).unsqueeze(0)
+    phase = torch.atan2(flow[1], flow[0]).unsqueeze(0)
+    return magnitude, phase
+
+
+
+    
+
+    
     
