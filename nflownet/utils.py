@@ -18,7 +18,7 @@ def compute_normal_flow(opt_flow: torch.tensor, img_pair: torch.tensor, magnitud
     - magnitude (bool): Whether to return just the magnitude of the normal flow (default False).    
     
     Returns:
-    - torch.Tensor: The normal flow or the magnitude of the flow, depending on the `magnitude` flag.
+    - torch.Tensor: (2, H, W) normal flow or (1, H, W) magnitude, depending on `magnitude` flag.
     """
     grayscale_transform = Grayscale(num_output_channels=1)
 
@@ -34,6 +34,7 @@ def compute_normal_flow(opt_flow: torch.tensor, img_pair: torch.tensor, magnitud
     scale = dot_product / grad_norm_sq
 
     n_x = scale * grad_x
+    print(n_x.shape)
     n_y = scale * grad_y
 
     if magnitude:
