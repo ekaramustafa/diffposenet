@@ -13,11 +13,11 @@ def compute_normal_flow(opt_flow: torch.tensor, img_pair: torch.tensor):
     Computes the normal flow magnitude from optical flow and an image pair.
 
     Args:
-    - opt_flow (torch.Tensor): Tensor of shape (2, H, W) containing the horizontal (u) and vertical (v) optical flow components.
-    - image_pair (torch.Tensor): Tensor of shape (6, H, W) containing two concatenated RGB images (e.g., [img1, img2]).
+    - opt_flow (torch.Tensor): (2, H, W) tensor containing the horizontal (u) and vertical (v) optical flow components.
+    - image_pair (torch.Tensor): (6, H, W) tensor containing two concatenated RGB images (e.g., [img1, img2]).
     
     Returns:
-    - normal_flow_magnitude (torch.Tensor): Tensor of shape (1, H, W) containing the normal flow magnitude for the image pair.
+    - normal_flow_magnitude (torch.Tensor): (1, H, W) tensor containing the normal flow magnitude for the image pair.
     """
     grayscale_transform = Grayscale(num_output_channels=1)
 
