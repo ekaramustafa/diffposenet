@@ -27,7 +27,8 @@ class DiffPoseNet(nn.Module):
         """
         # Compute normal flow between images
         with torch.no_grad():
-            normal_flow = self.nflownet(img1, img2)  # [B, H, W]
+            img = torch.cat((img1, img2), dim=1)
+            normal_flow = self.nflownet(img)  # [B, H, W]
         
         # Compute image gradients (for cheirality layer)
         # Using Sobel filters as approximation
