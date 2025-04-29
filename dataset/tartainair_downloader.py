@@ -1,4 +1,5 @@
 import os
+from typing import List
 from minio import Minio
 
 class TartanAirDownloader(object):
@@ -49,7 +50,28 @@ class TartanAirDownloader(object):
         self.filelist = downloadlist
         self._isloaded = True
 
-    def download(self, destination_path):
+    def download(self, destination_path : str, environments : List[str] = ["amusement"]):
+        """
+        Downloads files from the specified environment and saves them to the given local path.
+
+        Args:
+            destination_path (str): The local directory where downloaded files will be saved.
+                                    This directory must already exist and be writable.
+            environments (List[str]): A list representing the environment or source locations 
+                                    from which files will be downloaded.
+                                    amusement, oldtown, soulcity, neighborhood, japanesealley, office
+                                    office2, seasidetown, abandonedfactory, hospital 
+
+        Returns:
+            tuple:
+                - bool: True if all files were successfully downloaded, False otherwise.
+                - list[str] or None: A list of file paths for the successfully downloaded files, 
+                                    or None if an error occurred.
+
+        Notes:
+            - The dataset information must be loaded in advance using the `load()` method.
+        """
+
         if not self._isloaded:
             print("The dataset info is not loaded, Please load the dataset info first by calling load()")
             return
@@ -57,6 +79,10 @@ class TartanAirDownloader(object):
         target_filelist = []
 
         for source_file_name in self.filelist:
+            env_name = source_file_name.split('/')[0]
+            if env_name not in environments:
+                continue   
+
             target_file_name = os.path.join(destination_path, source_file_name.replace('/', '_'))
             target_filelist.append(target_file_name)
             print('--')
@@ -73,4 +99,5 @@ class TartanAirDownloader(object):
 if __name__ == "__main__":
     downloader = TartanAirDownloader()
     downloader.load()
-    downloader.download("data")
+    # bl, lst = downloader.download("data", ["amusement", "neighborhood"])
+    # print(lst)
