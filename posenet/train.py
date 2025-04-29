@@ -9,7 +9,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from dataset.tartanair import TartanAirDataset
 
 def main():
-    dataset = TartanAirDataset(root_dir="diffposenet/data/image_left")
+    dataset = TartanAirDataset(root_dir="data/image_left", size=(224,224))
     torch.cuda.empty_cache()
     train_loader = DataLoader(dataset, batch_size=8, shuffle=True)
     device = torch.device("cuda")
