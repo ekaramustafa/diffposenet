@@ -6,7 +6,7 @@ from torchvision import transforms
 from PIL import Image
 
 class TartanAirDataset(Dataset):
-    def __init__(self, root_dir, seq_len=2, transform=None):
+    def __init__(self, root_dir, seq_len=2, transform=None, size = None):
         """
         root_dir: path to the root directory of the TartanAir dataset
         transform: optional transform to be applied to the images
@@ -33,7 +33,7 @@ class TartanAirDataset(Dataset):
 
         if transform is None:
             self.transform = transforms.Compose([
-                transforms.Resize((224, 224)),
+                transforms.Resize((480, 640)) if size is None else transforms.Resize(size),
                 transforms.ToTensor(),
                 transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
             ])
