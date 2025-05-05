@@ -40,12 +40,10 @@ class TartanAirDownloader(object):
             zf = zipfile.split('/')
             filename = zf[-1]
             difflevel = zf[-2]
-
-            # image/depth/seg/flow
-            filetype = filename.split('_')[0] 
-            # left/right/flow/mask
-            cameratype = filename.split('.')[0].split('_')[-1]
-            
+        
+            filetype = 'flow' if 'flow' in filename else 'image'
+            cameratype = 'flow' if 'flow' in filename else 'left'
+        
             if (difflevel in levellist) and (filetype in typelist) and (cameratype in cameralist):
                 downloadlist.append(zipfile)
                 
