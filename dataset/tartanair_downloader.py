@@ -13,7 +13,7 @@ class TartanAirDownloader(object):
         
         self._isloaded = False
         self._levellist = ["Easy", "Hard"]
-        self._typelist = ["image"]
+        self._typelist = ["flow", "image"]
         self._cameralist = ["left"]
         self._dataset_info_path = "dataset/datasets.txt"
         if dataset_info_path is not None:
@@ -50,7 +50,9 @@ class TartanAirDownloader(object):
         self.filelist = downloadlist
         self._isloaded = True
 
-    def download(self, destination_path : str, environments : List[str] = ["amusement"]):
+    def download(self, destination_path : str, environments : List[str] = ["amusement", "oldtown", "neighborhood", "soulcity", 
+                                                                          "japanesealley", "office", "office2", "seasidetown", 
+                                                                          "abandonedfactory", "hospital"]):
         """
         Downloads files from the specified environment and saves them to the given local path.
 
@@ -99,5 +101,7 @@ class TartanAirDownloader(object):
 if __name__ == "__main__":
     downloader = TartanAirDownloader()
     downloader.load()
-    # bl, lst = downloader.download("data", ["amusement", "neighborhood"])
-    # print(lst)
+    bl, lst = downloader.download("data", ["amusement", "oldtown", "neighborhood", "soulcity",
+                                           "japanesealley", "office", "office2", "seasidetown", 
+                                            "abandonedfactory", "hospital"])
+    print(lst)
