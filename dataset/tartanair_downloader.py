@@ -30,8 +30,10 @@ class TartanAirDownloader(object):
         if cameralist is None:
             cameralist = self._cameralist
 
+        print("PRINTING:")
         with open(self._dataset_info_path) as f:
             lines = f.readlines()
+            print("File content: ", lines)
         zipsizelist = [ll.strip().split() for ll in lines if ll.strip().split()[0].endswith('.zip')]
         print("ZIP LIST: ", zipsizelist)
 
@@ -48,7 +50,7 @@ class TartanAirDownloader(object):
             
             if (difflevel in levellist) and (filetype in typelist) and (cameratype in cameralist):
                 downloadlist.append(zipfile)
-        print('Download list: ", downloadlist)
+        print("Download list: ", downloadlist)
         self.filelist = downloadlist
         self._isloaded = True
 
