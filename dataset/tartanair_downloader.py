@@ -22,7 +22,7 @@ class TartanAirDownloader(object):
         self.client = Minio(endpoint_url, access_key=access_key, secret_key=secret_key, secure=True)
         self.bucket_name = bucket_name
 
-    def load(self, levellist = None, typelist = None, cameralist = None):
+    def load(self, levellist=['Easy', 'Hard'], typelist=['image', 'flow'], cameralist=['left', 'flow']):
         if levellist is None:
             levellist = self._levellist
         if typelist is None:
