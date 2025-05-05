@@ -1,5 +1,6 @@
 import os
 from typing import List
+import zipfile
 from minio import Minio
 
 class TartanAirDownloader(object):
@@ -22,6 +23,7 @@ class TartanAirDownloader(object):
         self.client = Minio(endpoint_url, access_key=access_key, secret_key=secret_key, secure=True)
         self.bucket_name = bucket_name
 
+    
     def load(self, levellist=['Easy', 'Hard'], typelist=['image', 'flow'], cameralist=['left', 'flow']):
         if levellist is None:
             levellist = self._levellist
@@ -51,6 +53,7 @@ class TartanAirDownloader(object):
         self.filelist = downloadlist
         self._isloaded = True
 
+    
     def download(self, destination_path : str, environments : List[str] = ["amusement", "oldtown", "neighborhood", "soulcity", 
                                                                           "japanesealley", "office", "office2", "seasidetown", 
                                                                           "abandonedfactory", "hospital"]):
@@ -97,11 +100,26 @@ class TartanAirDownloader(object):
             self.client.fget_object(self.bucket_name, source_file_name, target_file_name)
             print(f"  Successfully downloaded {source_file_name} to {target_file_name}!")
 
-        return True, target_filelist
+        # Unzip all downloaded files
+        print("Unzipping downloaded files...")
+        for zip_path in target_filelist:
+            try:
+                if zipfile.is_zipfile(zip_path):
+                    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                        extract_dir = zip_path.replace('.zip', '')
+                        os.makedirs(extract_dir, exist_ok=True)
+                        zip_ref.extractall(extract_dir)
+                        print(f"  Unzipped {zip_path} to {extract_dir}")
+                else:
+                    print(f"  Skipped {zip_path}: Not a valid ZIP file.")
+            except Exception as e:
+                print(f"  Error unzipping {zip_path}: {e}")
+
+        return True, [zip_path.replace('.zip', '') for zip_path in target_filelist]
     
 if __name__ == "__main__":
     downloader = TartanAirDownloader()
-    downloader.load()
+    downloader.load(levellist=['Easy', 'Hard'], typelist=['image', 'flow'], cameralist=['left', 'flow'])
     bl, lst = downloader.download("data", ["amusement", "oldtown", "neighborhood", "soulcity",
                                            "japanesealley", "office", "office2", "seasidetown", 
                                             "abandonedfactory", "hospital"])
