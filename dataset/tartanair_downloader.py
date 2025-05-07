@@ -13,7 +13,7 @@ class TartanAirDownloader(object):
         # https://github.com/castacks/tartanair_tools/blob/master/download_training.py
         
         self._isloaded = False
-        self._levellist = ['Easy', 'Hard']
+        self._levellist = ['Easy']
         self._typelist = ['image', 'flow']
         self._cameralist = ['left', 'flow']
         self._dataset_info_path = "dataset/datasets.txt"
@@ -24,7 +24,7 @@ class TartanAirDownloader(object):
         self.bucket_name = bucket_name
 
     
-    def load(self, levellist=['Easy', 'Hard'], typelist=['image', 'flow'], cameralist=['left', 'flow']):
+    def load(self, levellist=['Easy'], typelist=['image', 'flow'], cameralist=['left', 'flow']):
         if levellist is None:
             levellist = self._levellist
         if typelist is None:
@@ -54,7 +54,7 @@ class TartanAirDownloader(object):
         self._isloaded = True
 
     
-    def download(self, destination_path : str, environments : List[str] = ["amusement", "oldtown", "neighborhood", "soulcity", 
+    def download(self, destination_path : str, environments : List[str] = ["soulcity", 
                                                                           "japanesealley", "office", "office2", "seasidetown", 
                                                                           "abandonedfactory", "hospital"]):
         """
@@ -119,8 +119,8 @@ class TartanAirDownloader(object):
     
 if __name__ == "__main__":
     downloader = TartanAirDownloader(dataset_info_path="/scratch/users/imelanlioglu21/comp447_project/diffposenet/dataset/datasets.txt")
-    downloader.load(levellist=['Easy', 'Hard'], typelist=['image', 'flow'], cameralist=['left', 'flow'])
-    bl, lst = downloader.download("/scratch/users/imelanlioglu21/comp447_project/tartanair_dataset", ["amusement", "oldtown", "neighborhood", "soulcity",
+    downloader.load(levellist=['Easy'], typelist=['image', 'flow'], cameralist=['left', 'flow'])
+    bl, lst = downloader.download("/scratch/users/imelanlioglu21/comp447_project/tartanair_dataset", soulcity",
                                            "japanesealley", "office", "office2", "seasidetown", 
                                             "abandonedfactory", "hospital"])
     print(lst)
