@@ -16,7 +16,7 @@ class TartanAirDownloader(object):
         self._levellist = ['Easy']
         self._typelist = ['image', 'flow']
         self._cameralist = ['left', 'flow']
-        self._dataset_info_path = "/diffposenet/dataset/datasets.txt"
+        self._dataset_info_path = "dataset/datasets.txt"
         if dataset_info_path is not None:
             self._dataset_info_path = dataset_info_path
         
