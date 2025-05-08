@@ -120,7 +120,7 @@ class TartanAirDownloader(object):
 if __name__ == "__main__":
     downloader = TartanAirDownloader(dataset_info_path="/scratch/users/imelanlioglu21/comp447_project/diffposenet/dataset/datasets.txt")
     downloader.load(levellist=['Easy'], typelist=['image', 'flow'], cameralist=['left', 'flow'])
-    bl, lst = downloader.download("/scratch/users/imelanlioglu21/comp447_project/tartanair_dataset", soulcity",
+    bl, lst = downloader.download("/scratch/users/imelanlioglu21/comp447_project/tartanair_dataset", ["soulcity",
                                            "japanesealley", "office", "office2", "seasidetown", 
                                             "abandonedfactory", "hospital"])
     print(lst)
