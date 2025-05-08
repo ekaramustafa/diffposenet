@@ -34,6 +34,7 @@ class TartanAirDownloader(object):
 
         with open(self._dataset_info_path) as f:
             lines = f.readlines()
+            print(lines)
         zipsizelist = [ll.strip().split() for ll in lines if ll.strip().split()[0].endswith('.zip')]
         print("ZIP LIST: ", zipsizelist)
 
