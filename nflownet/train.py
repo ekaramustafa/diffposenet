@@ -10,7 +10,7 @@ from utils import compute_normal_flow
 from model import NFlowNet
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from dataset.tartanair2 import PairedImageDataset     # <- will be changed
+from dataset.nflownet_dataloader import nflownet_dataloader     # <- will be changed
 
 
 def main():
