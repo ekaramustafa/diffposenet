@@ -91,6 +91,28 @@ def crop_to_target_size(tensor, target_height, target_width):
     return tensor[:, :, :target_height, :target_width]
 
 
+def interpolate_to_divisible_by_16(tensor):
+    """
+    Interpolates the (B, C, H, W) tensor so that H and W are divisible by 16.
+    Uses bilinear interpolation and keeps the values centered.
+
+    Args:
+        tensor (torch.Tensor): Input tensor of shape (B, C, H, W)
+
+    Returns:
+        torch.Tensor: Interpolated tensor with H and W divisible by 16
+    """
+    B, C, H, W = tensor.shape
+
+    def next_multiple_of_16(x):
+        return math.ceil(x / 16) * 16
+
+    new_H = next_multiple_of_16(H)
+    new_W = next_multiple_of_16(W)
+
+    resized_tensor = F.interpolate(tensor, size=(new_H, new_W), mode='bilinear', align_corners=False)
+    return resized_tensor
+
 
 def ProjectionEndpointError(opt_flow:torch.Tensor, normal_pred:torch.Tensor):            
     """
