@@ -91,6 +91,9 @@ def crop_to_target_size(tensor, target_height, target_width):
     return tensor[:, :, :target_height, :target_width]
 
 
+def next_multiple_of_16(x):
+        return math.ceil(x / 16) * 16
+
 def interpolate_to_divisible_by_16(tensor:torch.Tensor):
     """
     Interpolates the (B, C, H, W) tensor so that H and W are divisible by 16.
@@ -103,10 +106,6 @@ def interpolate_to_divisible_by_16(tensor:torch.Tensor):
         torch.Tensor: Interpolated tensor with H and W divisible by 16
     """
     B, C, H, W = tensor.shape
-
-    def next_multiple_of_16(x):
-        return math.ceil(x / 16) * 16
-
     new_H = next_multiple_of_16(H)
     new_W = next_multiple_of_16(W)
 
