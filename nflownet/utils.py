@@ -92,26 +92,25 @@ def crop_to_target_size(tensor, target_height, target_width):
 
 
 
-def ProjectionEndpointError(grad_x: torch.Tensor, grad_y: torch.Tensor, opt_flow:torch.Tensor, normal_pred:torch.Tensor):            
+def ProjectionEndpointError(opt_flow:torch.Tensor, normal_pred:torch.Tensor):            
     """
     Computes the Projection Endpoint Error (PEE).
     Reference: https://arxiv.org/html/2412.11284v1#S2.E2
 
     Args:
-    - grad_x (torch.Tensor): gradient of the image along x-axis (∂I/∂x)
-    - grad_y (torch.Tensor): gradient of the image along y-axis (∂I/∂y)
-    - proj_opt_flow (torch.Tensor): projected optical flow 
-    - normal_flow (torch.Tensor): ground-truth normal flow 
+    - opt_flow (torch.Tensor): ground-truth optical flow 
+    - normal_pred (torch.Tensor): normal flow prediction
 
     Returns:
     - PEE: float, the mean projection endpoint error over all pixels
     """
-    
-    grad_norm_squared = grad_x**2 + grad_y**2
-    grad_norm_squared[grad_norm_squared == 0] = 1e-5
+    n_x = normal_pred[0:1, :, :]
+    n_y = normal_pred[1:2, :, :]
+    normal_pred_norm = torch.sqrt(n_x**2 + n_y**2)
+    normal_pred_norm[normal_pred_norm == 0] = 1e-5
 
-    projection = (grad_x * proj_opt_flow[..., 0] + grad_y * proj_opt_flow[..., 1]) / grad_norm_squared
-    error = np.abs(n_hat - projection)
+    projection = torch.dot(opt_flow, normal_pred) / normal_pred_norm
+    error = np.abs(projection - normal_pred)
 
     PEE = np.mean(error)
     return PEE
