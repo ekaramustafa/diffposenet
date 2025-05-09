@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, random_split
 import torch.optim as optim
+import wandb
 from tqdm import tqdm
 from utils import compute_normal_flow
 from model import NFlowNet
@@ -13,7 +14,12 @@ from dataset.tartanair2 import PairedImageDataset     # <- will be changed
 
 
 def main():
-    dataset = PairedImageDataset(img_file_path="diffposenet/data/image_left", opt_flow_file_path="diffposenet/data/flow")
+    wandb.init(project="nflownet_default", name="run_"+wandb.util.generate_id())
+    
+
+
+    
+    dataset = PairedImageDataset(img_file_path="comp447_project/tartanair_dataset/ ...", opt_flow_file_path="comp447_project/tartanair_dataset/ ...")
     torch.cuda.empty_cache()
     train_size = int(0.8 * len(dataset)) 
     test_size = len(dataset) - train_size
