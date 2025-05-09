@@ -35,7 +35,6 @@ class nflownet_dataloader2(Dataset):
                     difficulty_path = os.path.join(env_path, difficulty)
                     if difficulty == "Easy": 
                         for traj_dir in os.listdir(difficulty_path):
-                            print(traj_dir)
                             traj_path = os.path.join(difficulty_path, traj_dir)
                             if os.path.isdir(traj_path):
                                 image_dir = os.path.join(traj_path, 'image_left')
