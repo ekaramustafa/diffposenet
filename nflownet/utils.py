@@ -91,7 +91,7 @@ def crop_to_target_size(tensor, target_height, target_width):
     return tensor[:, :, :target_height, :target_width]
 
 
-def interpolate_to_divisible_by_16(tensor):
+def interpolate_to_divisible_by_16(tensor:torch.Tensor):
     """
     Interpolates the (B, C, H, W) tensor so that H and W are divisible by 16.
     Uses bilinear interpolation and keeps the values centered.
