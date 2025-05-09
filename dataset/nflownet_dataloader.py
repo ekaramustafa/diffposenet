@@ -25,6 +25,9 @@ class nflownet_dataloader(Dataset):
         #   self.flow_transform = transforms.Compose([])
 
         self._load_paths()
+
+        print("img size: ", len(self.image_paths))
+        print("opt_flow size: ", len(self.opt_flow_paths))
         
 
     def _load_paths(self):
