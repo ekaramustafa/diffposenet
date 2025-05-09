@@ -8,13 +8,13 @@ import glob
 from nflownet.utils import compute_normal_flow
 
 
-class nflownet_dataloader(Dataset):
+class nflownet_dataloader2(Dataset):
     def __init__(self, root_dir_path, img_transform=None, flow_transform=None):
         self.root_dir_path = root_dir_path
-        self.image_paths = []
-        self.opt_flow_paths = []
+        self.data_paths = []
         self.img_transform = img_transform
         self.flow_transform = flow_transform
+        self.env_count = 0
         if img_transform is None:
             self.img_transform = transforms.Compose([
                 #transforms.Resize((480, 640)) if size is None else transforms.Resize(size),
@@ -25,9 +25,6 @@ class nflownet_dataloader(Dataset):
         #   self.flow_transform = transforms.Compose([])
 
         self._load_paths()
-
-        print("img size: ", len(self.image_paths))
-        print("opt_flow size: ", len(self.opt_flow_paths))
         
 
     def _load_paths(self):
@@ -48,25 +45,38 @@ class nflownet_dataloader(Dataset):
                                     image_files = sorted(glob.glob(os.path.join(image_dir, '*.png')))
                                     flow_files = sorted(glob.glob(os.path.join(flow_dir, '*_flow.npy')))
                                     
-                                    if len(image_files) == len(flow_files)+1:
-                                        self.image_paths.extend(image_files)
-                                        self.opt_flow_paths.extend(flow_files)
+                                    if len(image_files) == len(flow_files) + 1:
+                                        for i in range(len(flow_files)):
+                                            img1 = image_files[i]
+                                            img2 = image_files[i+1]
+                                            flow = flow_files[i]
+                                            self.data_paths.append((img1, img2, flow))
                                     else:
-                                        print(f"The lengths did not match in {traj_path}")
+                                        print(f"Length mismatch in {traj_path}")
                                     
 
     def __len__(self):
-        return len(self.image_paths) - 1
+        return len(self.data_paths)
 
     def __getitem__(self, idx):
-        img1 = self._read_image(self.image_paths[idx])
-        img2 = self._read_image(self.image_paths[idx + 1])
-        paired = torch.cat((img1, img2), dim=0)
+        img1_path, img2_path, flow_path = self.data_paths[idx]
 
-        opt_flow = self._read_opt_flow(self.opt_flow_paths[idx])
+        img1 = Image.open(img1_path).convert("RGB")
+        img2 = Image.open(img2_path).convert("RGB")
+        flow = np.load(flow_path)
+        flow = torch.from_numpy(flow).permute(2, 0, 1).float()
 
-        normal_flow = compute_normal_flow(opt_flow, paired, magnitude=False)
-        return paired, normal_flow
+        if self.img_transform:
+            img1 = self.img_transform(img1)
+            img2 = self.img_transform(img2)
+
+        if self.flow_transform:
+            flow = self.flow_transform(flow)
+        else:
+            flow = torch.tensor(flow, dtype=torch.float32)
+        paired_images = torch.cat([img1, img2], dim=0)  # shape (6, H, W)
+        normal_flow = compute_normal_flow(flow, paired_images)
+        return paired_images, flow
 
 
     def _read_opt_flow(self, opt_flow_path):
