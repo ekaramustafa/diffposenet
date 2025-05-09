@@ -35,6 +35,7 @@ class nflownet_dataloader(Dataset):
                     difficulty_path = os.path.join(env_path, difficulty)
                     if difficulty == "Easy": 
                         for traj_dir in os.listdir(difficulty_path):
+                            print(traj_dir)
                             traj_path = os.path.join(difficulty_path, traj_dir)
                             if os.path.isdir(traj_path):
                                 image_dir = os.path.join(traj_path, 'image_left')
@@ -47,6 +48,9 @@ class nflownet_dataloader(Dataset):
                                     if len(image_files) == len(flow_files)+1:
                                         self.image_paths.extend(image_files)
                                         self.opt_flow_paths.extend(flow_files)
+                                    else:
+                                        print(f"The lengths did not match in {traj_path}")
+                                    
 
     def __len__(self):
         return len(self.image_paths) - 1
