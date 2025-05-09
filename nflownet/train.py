@@ -10,11 +10,12 @@ from utils import compute_normal_flow
 from model import NFlowNet
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from dataset.nflownet_dataloader import nflownet_dataloader     # <- will be changed
+from dataset.nflownet_dataloader import nflownet_dataloader     
 
 
 def main():
-    wandb.init(project="nflownet_default", name="run_"+wandb.util.generate_id())
+    con
+    wandb.init(project="nflownet_default", config=config)
     
 
 
