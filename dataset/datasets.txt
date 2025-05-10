@@ -1,8 +1,3 @@
-office/Easy/flow_flow.zip 21.783180054
-office/Easy/image_left.zip 3.309042345
-office2/Easy/flow_flow.zip 18.825225553
-office2/Easy/image_left.zip 3.081818044
-seasidetown/Easy/flow_flow.zip 14.422309856
 seasidetown/Easy/image_left.zip 3.179905243
 abandonedfactory/Easy/flow_flow.zip 34.137856465
 abandonedfactory/Easy/image_left.zip 7.074777614
