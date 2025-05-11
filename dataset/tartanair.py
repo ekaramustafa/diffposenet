@@ -59,13 +59,15 @@ class TartanAirDataset(Dataset):
                         difficulty_path = os.path.join(env_path, difficulty)
                         if difficulty == "Easy": 
                             for traj_dir in os.listdir(difficulty_path):
-                                file_path = os.path.join(difficulty_path, traj_dir)
-                                if os.path.isdir(file_path):
-                                        for image in os.listdir(file_path):
-                                            if image.endswith(".png"):
-                                                img_files.append(os.path.join(file_path,image))
-                                if file_path.endswith(".txt"):
-                                    pose_file = file_path
+                                traj_path = os.path.join(difficulty_path, traj_dir)
+                                for traj in os.listdir(traj_path):
+                                    file_path = os.path.join(traj_path, traj)
+                                    if os.path.isdir(file_path):
+                                            for image in os.listdir(file_path):
+                                                if image.endswith(".png"):
+                                                    img_files.append(os.path.join(file_path,image))
+                                    if file_path.endswith(".txt"):
+                                        pose_file = file_path
         # load image files
         if img_files:
             img_files.sort()
