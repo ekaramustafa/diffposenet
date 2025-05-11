@@ -68,6 +68,8 @@ class nflownet_dataloader(Dataset):
 
         if self.img_transform:
             img1 = self.img_transform(img1)
+            print(img1.shape)
+            print(img1)
             img1 = self._crop_to_divisible_by_16(img1)
             img2 = self.img_transform(img2)
             img2 = self._crop_to_divisible_by_16(img2)
@@ -98,21 +100,27 @@ class nflownet_dataloader(Dataset):
             B, C, H, W = img.shape
             new_H = H - (H % 16)
             new_W = W - (W % 16)
+    
             crop_top = (H - new_H) // 2
             crop_bottom = H - new_H - crop_top
             crop_left = (W - new_W) // 2
             crop_right = W - new_W - crop_left
+    
             return img[:, :, crop_top:H - crop_bottom, crop_left:W - crop_right]
+    
         elif img.ndim == 3:
             # Unbatched tensor: (C, H, W)
             C, H, W = img.shape
             new_H = H - (H % 16)
             new_W = W - (W % 16)
+    
             crop_top = (H - new_H) // 2
             crop_bottom = H - new_H - crop_top
             crop_left = (W - new_W) // 2
             crop_right = W - new_W - crop_left
+    
             return img[:, crop_top:H - crop_bottom, crop_left:W - crop_right]
+    
         else:
             raise ValueError(f"Unsupported tensor shape: {img.shape}")
 
