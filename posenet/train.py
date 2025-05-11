@@ -46,7 +46,7 @@ def main():
     val_dataset = TartanAirDataset(root_dir="/kuacc/users/imelanlioglu21/comp447_project/tartanair_dataset/test_data/", size=(224, 224))
     
     train_dataset = Subset(train_dataset, list(range(0, len(train_dataset), 5)))
-    test_dataset = Subset(test_dataset, list(range(0, len(test_dataset), 8)))
+    val_dataset = Subset(val_dataset, list(range(0, len(val_dataset), 8)))
 
     train_loader = DataLoader(train_dataset, batch_size=config.batch_size, shuffle=True, num_workers=4, pin_memory=True)
     val_loader = DataLoader(val_dataset, batch_size=config.batch_size, shuffle=False, num_workers=4, pin_memory=True)
