@@ -10,6 +10,7 @@ import torchvision.transforms.functional as TF
 import torch.optim as optim
 import matplotlib.pyplot as plt
 from tqdm import tqdm
+from torch.utils.data import Subset
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from dataset.nflownet_dataloader import nflownet_dataloader
 from nflownet.utils import compute_normal_flow
@@ -47,7 +48,9 @@ def train(num_epochs, train_root_dir, test_root_dir):
     test_dataset = nflownet_dataloader(root_dir_path=test_root_dir)
     torch.cuda.empty_cache()
     print("Success")
-
+    
+    train_dataset = Subset(train_dataset, list(range(0, len(train_dataset), 5)))
+    test_dataset = Subset(test_dataset, list(range(0, len(test_dataset), 8)))
     print("============= Dataloaders =============")
     train_loader = DataLoader(train_dataset, batch_size=8, shuffle=True, num_workers=8, pin_memory=True)
     test_loader = DataLoader(test_dataset, batch_size=8, shuffle=False, num_workers=8, pin_memory=True)
