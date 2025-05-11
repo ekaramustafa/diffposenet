@@ -1,6 +1,6 @@
 from tartanair import TartanAirDataset
 
-dataset = TartanAirDataset(root_dir="data/image_left", seq_len=2)
+dataset = TartanAirDataset(root_dir="data", seq_len=2)
 
 print(len(dataset))
 
