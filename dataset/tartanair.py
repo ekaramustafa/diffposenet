@@ -6,34 +6,10 @@ from torchvision import transforms
 from PIL import Image
 
 class TartanAirDataset(Dataset):
-    def __init__(self, root_dir, seq_len=2, transform=None, size = None):
-        """
-        root_dir: path to the root directory of the TartanAir dataset
-        transform: optional transform to be applied to the images
-
-        Note that the images and the pose text information must be in the same directory.
-        Pose txt file must include [tx, ty, tz, qx, qy, qz, qw] in its every line.
-
-        For example, the directory structure should be:
-        TartanAir/
-        ├── root_dir/
-        │   ├── env/
-        │   ├──── Easy/
-        │   ├──────── P00/
-        │   ├───────────── image_left/
-        │   ├───────────────── 000001_left.png
-        │   ├───────────────── 000002_left.png
-        │   ├─────────────  pose_left.txt
-        │   ├─────────────  pose_right.txt
-        
-        """
+    def __init__(self, root_dir, seq_len=2, transform=None, size=None):
         self.root_dir = root_dir
         self.transform = transform
-        self.images = []
-        self.ground_truth_pose = []
         self.seq_len = seq_len
-
-        self.only_left = True
 
         if transform is None:
             self.transform = transforms.Compose([
@@ -42,49 +18,57 @@ class TartanAirDataset(Dataset):
                 transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
             ])
 
-        self._load_data()
+        self.image_files = []
+        self.pose_files = []
 
-    def _load_data(self):
-        temp_images = []
-        temp_poses = []
-        img_files = []
-        pose_files = []
-        for envs_dir in os.listdir(self.root_dir):
-            env_path = os.path.join(self.root_dir, envs_dir)
+        # ONLY store paths here
+        for envs_dir in os.listdir(root_dir):
+            env_path = os.path.join(root_dir, envs_dir)
             for difficulty in os.listdir(env_path):
                 difficulty_path = os.path.join(env_path, difficulty)
-                if difficulty == "Easy": 
+                if difficulty == "Easy":
                     for traj_dir in os.listdir(difficulty_path):
                         traj_path = os.path.join(difficulty_path, traj_dir)
                         for traj in os.listdir(traj_path):
                             file_path = os.path.join(traj_path, traj)
                             if os.path.isdir(file_path):
-                                    for image in os.listdir(file_path):
-                                        if image.endswith(".png"):
-                                            image_path = os.path.join(file_path,image)
-                                            img_files.append(image_path)
+                                for image in os.listdir(file_path):
+                                    if image.endswith(".png"):
+                                        self.image_files.append(os.path.join(file_path, image))
                             if file_path.endswith("left.txt"):
-                                pose_files.append(file_path)
-        # load image files
-        if img_files:
-            img_files.sort()
-            temp_images.extend(img_files)
-        poses = []
-        # load corresponding pose information 
-        if pose_files:
-            pose_files.sort()
-            poses = self._read_ground_truth(pose_files)
-            temp_poses.extend(poses)
-        else:
-            print("poses empty")
+                                self.pose_files.append(file_path)
 
-        loaded_images = [self._load_image(img_path) for img_path in temp_images]
-        
-        for i in range(len(loaded_images) - self.seq_len):
-            sequence = loaded_images[i:i+self.seq_len]
-            poses = [self._compute_relative_pose(temp_poses[j], temp_poses[j+1]) for j in range(i, i + self.seq_len - 1)]
-            self.images.append(sequence)
-            self.ground_truth_pose.append(poses)
+        self.image_files.sort()
+        self.pose_files.sort()
+
+        # load poses only once (small memory footprint)
+        self.poses = self._read_ground_truth(self.pose_files)
+
+    def __len__(self):
+        return len(self.image_files) - self.seq_len
+
+    def __getitem__(self, idx):
+        # Load image sequence
+        image_seq = []
+        for i in range(idx, idx + self.seq_len):
+            img = Image.open(self.image_files[i])
+            if self.transform:
+                img = self.transform(img)
+            image_seq.append(img)
+        image_seq = torch.stack(image_seq, dim=0)
+
+        # Load pose pairs for relative pose
+        poses = []
+        for i in range(idx, idx + self.seq_len - 1):
+            pose1 = self.poses[i]
+            pose2 = self.poses[i + 1]
+            rel_pose = self._compute_relative_pose(pose1, pose2)
+            poses.append(rel_pose)
+
+        translations = torch.stack([p[0] for p in poses], dim=0)
+        rotations = torch.stack([p[1] for p in poses], dim=0)
+
+        return image_seq, translations, rotations
 
     def _compute_relative_pose(self, pose1, pose2):
         t1 = np.array(pose1[:3])
@@ -141,19 +125,6 @@ class TartanAirDataset(Dataset):
         R[2, 2] = 1 - 2*x*x - 2*y*y
         
         return R
-
-    def __len__(self):
-        return len(self.images)
-
-    def __getitem__(self, idx):
-        sequence = self.images[idx]  
-        poses = self.ground_truth_pose[idx]  # List of (t, q)
-
-        images = torch.stack(sequence, dim=0)  # Shape: [seq_len, C, H, W]
-        translations = torch.stack([p[0] for p in poses], dim=0)  # [seq_len-1, 3]
-        rotations = torch.stack([p[1] for p in poses], dim=0)     # [seq_len-1, 4]
-
-        return images, translations, rotations
     
     def _load_image(self, image_path):
         image = Image.open(image_path)
