@@ -1,3 +1,4 @@
+
 import os
 import numpy as np
 import torch
@@ -96,6 +97,8 @@ class nflownet_dataloader(Dataset):
             B, C, H, W = img.shape
         elif img.ndim == 3:
             C, H, W = img.shape
+
+        print(C, H, W)
 
         new_H = H - (H % 16)
         new_W = W - (W % 16)
