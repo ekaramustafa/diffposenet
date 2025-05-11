@@ -66,12 +66,14 @@ class TartanAirDataset(Dataset):
                             if os.path.isdir(file_path):
                                     for image in os.listdir(file_path):
                                         if image.endswith(".png"):
-                                            img_files.append(os.path.join(file_path,image))
+                                            image_path = os.path.join(file_path,image)
+                                            print("image_path : ", image_path)
+                                            img_files.append(image_path)
                             if file_path.endswith("left.txt"):
                                 pose_files.append(file_path)
         # load image files
-        # print(img_files[0])
-        # print(pose_files[0])
+        print(img_files[0])
+        print(pose_files[0])
         if img_files:
             img_files.sort()
             temp_images.extend(img_files)
