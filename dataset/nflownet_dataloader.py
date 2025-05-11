@@ -67,9 +67,9 @@ class nflownet_dataloader(Dataset):
         flow = torch.from_numpy(flow).permute(2, 0, 1).float()
 
         if self.img_transform:
-            img1 = self.img_transform(img1)
             print(img1.shape)
             print(img1)
+            img1 = self.img_transform(img1)
             img1 = self._crop_to_divisible_by_16(img1)
             img2 = self.img_transform(img2)
             img2 = self._crop_to_divisible_by_16(img2)
