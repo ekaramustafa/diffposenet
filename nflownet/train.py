@@ -29,8 +29,8 @@ def train(num_epochs, train_root_dir, test_root_dir):
 
     wandb.login()
     wandb.init(
-        project="nflownet_train",
-        name="experiment-HPC-001",
+        project="diffposenet",
+        name="Nflownet-Training",
         config={
             "learning_rate": 0.001,
             "epochs": num_epochs,
