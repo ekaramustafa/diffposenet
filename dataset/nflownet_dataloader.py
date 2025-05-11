@@ -10,20 +10,13 @@ from nflownet.utils import compute_normal_flow
 
 
 class nflownet_dataloader(Dataset):
-    def __init__(self, root_dir_path, img_transform=None, flow_transform=None):
+    def __init__(self, root_dir_path, img_transform=None):
         self.root_dir_path = root_dir_path
         self.data_paths = []
         self.img_transform = img_transform
-        self.flow_transform = flow_transform
         self.env_count = 0
         if img_transform is None:
-            self.img_transform = transforms.Compose([
-                #transforms.Resize((480, 640)) if size is None else transforms.Resize(size),
-                transforms.ToTensor(),
-                #transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-            ])
-        #if flow_transform is None:   
-        #   self.flow_transform = transforms.Compose([])
+            self.img_transform = transforms.ToTensor()
 
         self._load_paths()
         
@@ -61,37 +54,23 @@ class nflownet_dataloader(Dataset):
     def __getitem__(self, idx):
         img1_path, img2_path, flow_path = self.data_paths[idx]
 
-        img1 = Image.open(img1_path).convert("RGB")
-        img2 = Image.open(img2_path).convert("RGB")
-        flow = np.load(flow_path)
-        flow = torch.from_numpy(flow).permute(2, 0, 1).float()
-
-        if self.img_transform:
-            print(img1.shape)
-            print(img1)
-            img1 = self.img_transform(img1)
-            img1 = self._crop_to_divisible_by_16(img1)
-            img2 = self.img_transform(img2)
-            img2 = self._crop_to_divisible_by_16(img2)
-
-        if self.flow_transform:
-            flow = self.flow_transform(flow)
-        else:
-            flow = torch.tensor(flow, dtype=torch.float32)
-        flow = self._crop_to_divisible_by_16(flow)
+        img1 = self._read_image(img1_path)
+        img2 = self._read_image(img2_path)
+        flow = self._read_opt_flow(flow_path)
         paired_images = torch.cat([img1, img2], dim=0)  # shape (6, H, W)
         normal_flow = compute_normal_flow(flow, paired_images)
         return paired_images, flow
 
-
     def _read_opt_flow(self, opt_flow_path):
         opt_flow = np.load(opt_flow_path)
         opt_flow = torch.from_numpy(opt_flow).permute(2, 0, 1).float()
+        opt_flow = self._crop_to_divisible_by_16(opt_flow)
         return opt_flow
     
     def _read_image(self, image_path):
         image = Image.open(image_path).convert('RGB')
         image = self.img_transform(image)
+        image = self._crop_to_divisible_by_16(image)
         return image
 
     def _crop_to_divisible_by_16(self, img: torch.Tensor):
@@ -100,27 +79,21 @@ class nflownet_dataloader(Dataset):
             B, C, H, W = img.shape
             new_H = H - (H % 16)
             new_W = W - (W % 16)
-    
             crop_top = (H - new_H) // 2
             crop_bottom = H - new_H - crop_top
             crop_left = (W - new_W) // 2
             crop_right = W - new_W - crop_left
-    
             return img[:, :, crop_top:H - crop_bottom, crop_left:W - crop_right]
-    
         elif img.ndim == 3:
             # Unbatched tensor: (C, H, W)
             C, H, W = img.shape
             new_H = H - (H % 16)
             new_W = W - (W % 16)
-    
             crop_top = (H - new_H) // 2
             crop_bottom = H - new_H - crop_top
             crop_left = (W - new_W) // 2
             crop_right = W - new_W - crop_left
-    
             return img[:, crop_top:H - crop_bottom, crop_left:W - crop_right]
-    
         else:
             raise ValueError(f"Unsupported tensor shape: {img.shape}")
 
