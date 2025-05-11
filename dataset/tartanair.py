@@ -49,31 +49,23 @@ class TartanAirDataset(Dataset):
         temp_poses = []
         img_files = []
         pose_files = []
-        print("Self_root:dir : ", self.root_dir)
         for envs_dir in os.listdir(self.root_dir):
             env_path = os.path.join(self.root_dir, envs_dir)
-            print("env_path:dir : ", env_path)
             for difficulty in os.listdir(env_path):
                 difficulty_path = os.path.join(env_path, difficulty)
-                print("difficulty_path:dir : ", difficulty_path)
                 if difficulty == "Easy": 
                     for traj_dir in os.listdir(difficulty_path):
                         traj_path = os.path.join(difficulty_path, traj_dir)
-                        print("traj_path:dir : ", traj_path)
                         for traj in os.listdir(traj_path):
                             file_path = os.path.join(traj_path, traj)
-                            print("file_path:dir", file_path)
                             if os.path.isdir(file_path):
                                     for image in os.listdir(file_path):
                                         if image.endswith(".png"):
                                             image_path = os.path.join(file_path,image)
-                                            print("image_path : ", image_path)
                                             img_files.append(image_path)
                             if file_path.endswith("left.txt"):
                                 pose_files.append(file_path)
         # load image files
-        print(img_files[0])
-        print(pose_files[0])
         if img_files:
             img_files.sort()
             temp_images.extend(img_files)
@@ -85,10 +77,6 @@ class TartanAirDataset(Dataset):
             temp_poses.extend(poses)
         else:
             print("poses empty")
-        # the lengths should match
-        if len(img_files) != len(poses):
-            print("There is a mismatch between the length of image files and pose")
-            return 
 
         loaded_images = [self._load_image(img_path) for img_path in temp_images]
         
@@ -180,5 +168,5 @@ class TartanAirDataset(Dataset):
             with open(file_path, "r") as f:
                 lines = f.readlines()
                 arr = [list(map(float, line.split())) for line in lines]
-                results.append(arr)
+                results.extend(arr)
         return results
