@@ -10,6 +10,7 @@ import torchvision.transforms.functional as TF
 import torch.optim as optim
 import matplotlib.pyplot as plt
 from tqdm import tqdm
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from dataset.nflownet_dataloader import nflownet_dataloader
 from nflownet.utils import compute_normal_flow
 from nflownet.model import NFlowNet
