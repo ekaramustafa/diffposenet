@@ -29,7 +29,7 @@ def main():
         config={
             "learning_rate": 1e-4,
             "batch_size": 8,
-            "epochs": 10,
+            "epochs": 30,
             "optimizer": "Adam"
         }
     )
@@ -45,8 +45,8 @@ def main():
     train_size = total_size - val_size
     train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
 
-    train_loader = DataLoader(train_dataset, batch_size=config.batch_size, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=config.batch_size, shuffle=False)
+    train_loader = DataLoader(train_dataset, batch_size=config.batch_size, shuffle=True, num_workers=8, pin_memory=True)
+    val_loader = DataLoader(val_dataset, batch_size=config.batch_size, shuffle=False, num_workers=8, pin_memory=True)
 
     # Model and optimizer
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -122,4 +122,4 @@ def main():
 
 if __name__ == "__main__":
     model = main()
-    # torch.save(model, "pose_net_progress.pth")
+    torch.save(pose_net.state_dict(), "pose_net_progress.pth")
