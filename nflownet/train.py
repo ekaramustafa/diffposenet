@@ -215,5 +215,5 @@ def train(num_epochs, train_root_dir, test_root_dir):
 if __name__ == "__main__":
     num_epochs = 400
     train_root_dir = "/kuacc/users/imelanlioglu21/comp447_project/tartanair_dataset/train_data/"
-    test_root_dir = "//kuacc/users/imelanlioglu21/comp447_project/tartanair_dataset/test_data/"
+    test_root_dir = "/kuacc/users/imelanlioglu21/comp447_project/tartanair_dataset/test_data/"
     train_losses, test_losses = train(num_epochs, train_root_dir, test_root_dir)
