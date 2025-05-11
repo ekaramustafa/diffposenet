@@ -8,7 +8,7 @@ import glob
 from nflownet.utils import compute_normal_flow
 
 
-class nflownet_dataloader2(Dataset):
+class nflownet_dataloader(Dataset):
     def __init__(self, root_dir_path, img_transform=None, flow_transform=None):
         self.root_dir_path = root_dir_path
         self.data_paths = []
