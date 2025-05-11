@@ -50,15 +50,19 @@ def train(num_epochs, train_root_dir, test_root_dir):
     print("Success")
     
     print("============= Dataloaders =============")
-    train_loader = DataLoader(train_dataset, batch_size=8, shuffle=True, num_workers=4, pin_memory=True)
-    test_loader = DataLoader(test_dataset, batch_size=8, shuffle=False, num_workers=4, pin_memory=True)
+    train_loader = DataLoader(train_dataset, batch_size=8, shuffle=True, num_workers=8, pin_memory=True)
+    test_loader = DataLoader(test_dataset, batch_size=8, shuffle=False, num_workers=8, pin_memory=True)
 
     print(f"Training set size: {len(train_dataset)}")
     print(f"Validation set size: {len(test_dataset)}")
     
     print("============= Initializing the Model =============")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    nflow_net = NFlowNet(base_channels=64).to(device)
+    nflow_net = NFlowNet(base_channels=64)
+    if torch.cuda.device_count() > 1:
+        print(f"Using {torch.cuda.device_count()} GPUs")
+        nflow_net = nn.DataParallel(nflow_net)
+    nflow_net = nflow_net.to(device)
     optimizer = torch.optim.Adam(nflow_net.parameters(), lr=1e-4)
     criterion = nn.MSELoss()
 
@@ -201,13 +205,13 @@ def train(num_epochs, train_root_dir, test_root_dir):
         }
     })
 
-        if epoch % 20 == 0:
+        if epoch % 50 == 0:
             torch.save(nflow_net.state_dict(), f"nflownet_epoch_{epoch}.pth")
             print(f"Model saved to nflownet_epoch_{epoch}.pth")
 
     # Save model after training
-    torch.save(nflow_net.state_dict(), "nflownet.pth")
-    print("Model saved to nflownet.pth")
+    torch.save(nflow_net.state_dict(), "nflownet_final.pth")
+    print("Model saved to nflownet_final.pth")
 
     wandb.log({"train_loss": train_losses, "validation_loss": test_losses})
     wandb.finish()
