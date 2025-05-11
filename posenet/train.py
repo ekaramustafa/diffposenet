@@ -42,9 +42,9 @@ def main():
 
     # Dataset and splitting
     print("============= Loading the Train Dataset =============")
-    train_dataset = TartanAirDataset(root_dir="/tartanair_dataset/train_data/", size=(224, 224))
+    train_dataset = TartanAirDataset(root_dir="~/comp447_project/tartanair_dataset/train_data/", size=(224, 224))
     print("============= Loading the Validation Dataset =============")
-    val_dataset = TartanAirDataset(root_dir="/tartanair_dataset/test_data/", size=(224, 224))
+    val_dataset = TartanAirDataset(root_dir="~/comp447_project/tartanair_dataset/test_data/", size=(224, 224))
 
     train_loader = DataLoader(train_dataset, batch_size=config.batch_size, shuffle=True, num_workers=4, pin_memory=True)
     val_loader = DataLoader(val_dataset, batch_size=config.batch_size, shuffle=False, num_workers=4, pin_memory=True)
