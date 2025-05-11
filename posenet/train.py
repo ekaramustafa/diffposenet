@@ -2,9 +2,10 @@ import sys
 import os
 import random
 import matplotlib.pyplot as plt
-from torch.utils.data import DataLoader, Subset, random_split
+from torch.utils.data import DataLoader, random_split
 import torch
 import torch.optim as optim
+from tqdm import tqdm
 import wandb
 from model import PoseNet
 
@@ -22,10 +23,10 @@ def set_seed(seed=42):
 
 def main():
     # Initialize wandb
-    wandb.login() 
+    wandb.login()  # Optional if not logged in already
     wandb.init(
-        project="diffposenet",  # change this to your project name
-        name="PoseNet-Training",  # experiment name
+        project="diffposenet",
+        name="PoseNet-Training",
         config={
             "learning_rate": 1e-4,
             "batch_size": 8,
@@ -50,14 +51,15 @@ def main():
     pose_net = PoseNet().to(device)
     optimizer = optim.Adam(pose_net.parameters(), lr=config.learning_rate)
 
-    # Training
     train_losses = []
     val_losses = []
+
     for epoch in range(config.epochs):
         pose_net.train()
         total_train_loss = 0.0
 
-        for images, translations, rotations in train_loader:
+        # Train loop with tqdm
+        for images, translations, rotations in tqdm(train_loader, desc=f"Epoch {epoch+1} Training"):
             images = images.to(device, non_blocking=True)
             translations = translations.to(device, non_blocking=True)
             rotations = rotations.to(device, non_blocking=True)
@@ -72,11 +74,11 @@ def main():
         avg_train_loss = total_train_loss / len(train_loader)
         train_losses.append(avg_train_loss)
 
-        # Validation
+        # Validation loop with tqdm
         pose_net.eval()
         total_val_loss = 0.0
         with torch.no_grad():
-            for images, translations, rotations in val_loader:
+            for images, translations, rotations in tqdm(val_loader, desc=f"Epoch {epoch+1} Validation"):
                 images = images.to(device, non_blocking=True)
                 translations = translations.to(device, non_blocking=True)
                 rotations = rotations.to(device, non_blocking=True)
@@ -88,16 +90,16 @@ def main():
         avg_val_loss = total_val_loss / len(val_loader)
         val_losses.append(avg_val_loss)
 
-        # Log to wandb
+        # wandb logging
         wandb.log({
             "epoch": epoch + 1,
             "train_loss": avg_train_loss,
             "val_loss": avg_val_loss
         })
 
-        print(f"Epoch {epoch + 1}/{config.epochs} - Train Loss: {avg_train_loss:.6f}, Val Loss: {avg_val_loss:.6f}")
+        print(f"Epoch {epoch+1}/{config.epochs} - Train Loss: {avg_train_loss:.6f} - Val Loss: {avg_val_loss:.6f}")
 
-    # Plot locally
+    # Plot + save figure + upload to wandb
     plt.figure()
     plt.plot(range(1, config.epochs + 1), train_losses, label="Train Loss")
     plt.plot(range(1, config.epochs + 1), val_losses, label="Validation Loss")
@@ -106,14 +108,12 @@ def main():
     plt.title("Training and Validation Loss over Epochs")
     plt.legend()
     plt.grid(True)
-    plt.savefig("loss_curve.png")
+    plot_path = "training_validation_loss.png"
+    plt.savefig(plot_path)
     plt.show()
+    wandb.log({"loss_plot": wandb.Image(plot_path)})
 
-    # Optionally save model
-    # wandb.save("pose_net_progress.pth")
-    # torch.save(pose_net.state_dict(), "pose_net_progress.pth")
-
-    print("Finished training with train/validation split.")
+    print("Training completed.")
     wandb.finish()
     return pose_net
 
