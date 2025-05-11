@@ -51,11 +51,8 @@ class TartanAirDataset(Dataset):
         pose_files = []
         print("Self_root:dir : ", self.root_dir)
         for env_dir in os.listdir(self.root_dir):
-            envs_path = os.path.join(self.root_dir, env_dir)
-            print("envs_path:dir : ", envs_path)
-            if os.path.isdir(envs_path):
-                for env in os.listdir(envs_path):
-                    env_path = os.path.join(envs_path, env)
+                for env in os.listdir(env_dir):
+                    env_path = os.path.join(env_dir, env)
                     print("env_path:dir : ", env_path)
                     for difficulty in os.listdir(env_path):
                         difficulty_path = os.path.join(env_path, difficulty)
