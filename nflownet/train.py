@@ -52,8 +52,8 @@ def train(num_epochs, train_root_dir, test_root_dir):
     train_dataset = Subset(train_dataset, list(range(0, len(train_dataset), 5)))
     test_dataset = Subset(test_dataset, list(range(0, len(test_dataset), 8)))
     print("============= Dataloaders =============")
-    train_loader = DataLoader(train_dataset, batch_size=8, shuffle=True, num_workers=8, pin_memory=True)
-    test_loader = DataLoader(test_dataset, batch_size=8, shuffle=False, num_workers=8, pin_memory=True)
+    train_loader = DataLoader(train_dataset, batch_size=8, shuffle=True, num_workers=4, pin_memory=True)
+    test_loader = DataLoader(test_dataset, batch_size=8, shuffle=False, num_workers=4, pin_memory=True)
 
     print(f"Training set size: {len(train_dataset)}")
     print(f"Validation set size: {len(test_dataset)}")
