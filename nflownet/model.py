@@ -46,7 +46,7 @@ class TransposedResidualBlock(nn.Module):
 
 
  
-class NFlowNet(nn.Module):
+class NFlowNet2(nn.Module):
     """
     depth: χ, how many residual/transpose blocks to repeat
     in_channels: input image channels (6 by default)                        
@@ -65,11 +65,11 @@ class NFlowNet(nn.Module):
         num_channels = base_channels
 
         self.encoder = nn.Sequential(
-            nn.Conv2d(in_channels, num_channels, kernel_size=7, stride=2, padding=2),
+            nn.Conv2d(in_channels, num_channels, kernel_size=7, stride=2),
             nn.BatchNorm2d(num_channels),
             nn.ReLU(inplace=True),
 
-            nn.Conv2d(num_channels, int(num_channels*expansion_rate), kernel_size=5, stride=2, padding=2),
+            nn.Conv2d(num_channels, int(num_channels*expansion_rate), kernel_size=5, stride=2),
             nn.BatchNorm2d(int(num_channels * expansion_rate)),
             nn.ReLU(inplace=True)
         )
@@ -79,25 +79,25 @@ class NFlowNet(nn.Module):
         residual_layers = []
         for _ in range(depth):
             residual_layers.append(ResidualBlock(num_channels))
-            residual_layers.append(nn.Conv2d(num_channels, num_channels*expansion_rate, kernel_size=3, stride=2, padding=1))
+            residual_layers.append(nn.Conv2d(num_channels, int(num_channels*expansion_rate), kernel_size=3, stride=2, padding=1))
             num_channels = int(num_channels*expansion_rate)
         for _ in range(depth):
-            residual_layers.append(TransposedResidualBlock(num_channels))
-            residual_layers.append(nn.ConvTranspose2d(num_channels, int(num_channels/expansion_rate), kernel_size=3, stride=2, padding=1, output_padding=1))
-            num_channels = int(num_channels/expansion_rate)
+            residual_layers.append(TransposedResidualBlock(num_channels))  
+            residual_layers.append(nn.ConvTranspose2d(num_channels, int(num_channels/expansion_rate), kernel_size=3, stride=2, padding=1))
+            num_channels = int(num_channels/expansion_rate) 
 
         self.residual = nn.Sequential(*residual_layers)
 
         self.decoder = nn.Sequential(
-            nn.ConvTranspose2d(num_channels, int(num_channels/expansion_rate), kernel_size=5, stride=2, padding=2),
+            nn.ConvTranspose2d(num_channels, int(num_channels/expansion_rate), kernel_size=5, stride=2),
             nn.BatchNorm2d(int(num_channels/expansion_rate)),
             nn.ReLU(inplace=True),
 
-            nn.ConvTranspose2d(int(num_channels/expansion_rate), int(num_channels/(expansion_rate**2)), kernel_size=7, stride=2, padding=2, output_padding=1),
+            nn.ConvTranspose2d(int(num_channels/expansion_rate), int(num_channels/(expansion_rate**2)), kernel_size=7, stride=2),
             nn.BatchNorm2d(int(num_channels/(expansion_rate**2))),
             nn.ReLU(inplace=True),
 
-            nn.ConvTranspose2d(int(num_channels/(expansion_rate**2)), 2, kernel_size=7, stride=1, padding=3)
+            nn.ConvTranspose2d(int(num_channels/(expansion_rate**2)), 2, kernel_size=4, stride=1, padding=1)
         )
 
     def forward(self, x):
