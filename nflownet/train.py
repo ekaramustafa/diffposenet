@@ -32,7 +32,7 @@ def train(num_epochs, train_root_dir, test_root_dir):
     wandb.login(key="66820f29cb45c85261f7dfd317c43275e8d82562")
     wandb.init(
         project="diffposenet",
-        name="Nflownet-Training",
+        name="Nflownet-Training-HPC",
         config={
             "learning_rate": 0.001,
             "epochs": num_epochs,
@@ -49,8 +49,6 @@ def train(num_epochs, train_root_dir, test_root_dir):
     torch.cuda.empty_cache()
     print("Success")
     
-    train_dataset = Subset(train_dataset, list(range(0, len(train_dataset), 5)))
-    test_dataset = Subset(test_dataset, list(range(0, len(test_dataset), 8)))
     print("============= Dataloaders =============")
     train_loader = DataLoader(train_dataset, batch_size=8, shuffle=True, num_workers=4, pin_memory=True)
     test_loader = DataLoader(test_dataset, batch_size=8, shuffle=False, num_workers=4, pin_memory=True)
