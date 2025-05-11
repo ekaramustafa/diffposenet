@@ -75,7 +75,6 @@ class nflownet_dataloader(Dataset):
 
     def _crop_to_divisible_by_16(self, img: torch.Tensor):
         if img.ndim == 4:
-            # Batched tensor: (B, C, H, W)
             B, C, H, W = img.shape
             new_H = H - (H % 16)
             new_W = W - (W % 16)
@@ -85,7 +84,6 @@ class nflownet_dataloader(Dataset):
             crop_right = W - new_W - crop_left
             return img[:, :, crop_top:H - crop_bottom, crop_left:W - crop_right]
         elif img.ndim == 3:
-            # Unbatched tensor: (C, H, W)
             C, H, W = img.shape
             new_H = H - (H % 16)
             new_W = W - (W % 16)
