@@ -39,11 +39,8 @@ def main():
     set_seed()
 
     # Dataset and splitting
-    dataset = TartanAirDataset(root_dir="diffposenet/data", size=(224, 224))
-    total_size = len(dataset)
-    val_size = int(0.2 * total_size)
-    train_size = total_size - val_size
-    train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
+    train_dataset = TartanAirDataset(root_dir="diffposenet/data", size=(224, 224))
+    val_dataset = TartanAirDataset(root_dir="diffposenet/data", size=(224, 224))
 
     train_loader = DataLoader(train_dataset, batch_size=config.batch_size, shuffle=True, num_workers=8, pin_memory=True)
     val_loader = DataLoader(val_dataset, batch_size=config.batch_size, shuffle=False, num_workers=8, pin_memory=True)
