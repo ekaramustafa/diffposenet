@@ -23,7 +23,7 @@ def set_seed(seed=42):
 
 def main():
     # Initialize wandb
-    wandb.login()  # Optional if not logged in already
+    wandb.login(key="66820f29cb45c85261f7dfd317c43275e8d82562")
     wandb.init(
         project="diffposenet",
         name="PoseNet-Training",
@@ -40,11 +40,13 @@ def main():
     set_seed()
 
     # Dataset and splitting
+    print("============= Loading the Train Dataset =============")
     train_dataset = TartanAirDataset(root_dir="/tartanair_dataset/train_data/", size=(224, 224))
+    print("============= Loading the Validation Dataset =============")
     val_dataset = TartanAirDataset(root_dir="/tartanair_dataset/test_data/", size=(224, 224))
 
-    train_loader = DataLoader(train_dataset, batch_size=config.batch_size, shuffle=True, num_workers=8, pin_memory=True)
-    val_loader = DataLoader(val_dataset, batch_size=config.batch_size, shuffle=False, num_workers=8, pin_memory=True)
+    train_loader = DataLoader(train_dataset, batch_size=config.batch_size, shuffle=True, num_workers=4, pin_memory=True)
+    val_loader = DataLoader(val_dataset, batch_size=config.batch_size, shuffle=False, num_workers=4, pin_memory=True)
 
     # Model and optimizer
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
