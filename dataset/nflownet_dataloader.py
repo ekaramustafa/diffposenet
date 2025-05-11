@@ -92,20 +92,27 @@ class nflownet_dataloader(Dataset):
         image = self.img_transform(image)
         return image
 
-    def _crop_to_divisible_by_16(self, img: torch.Tensor):
-        if img.ndim == 4:
-            B, C, H, W = img.shape
-        elif img.ndim == 3:
-            C, H, W = img.shape
-
-        print(C, H, W)
-
+def _crop_to_divisible_by_16(self, img: torch.Tensor):
+    if img.ndim == 4:
+        # Batched tensor: (B, C, H, W)
+        B, C, H, W = img.shape
         new_H = H - (H % 16)
         new_W = W - (W % 16)
-    
         crop_top = (H - new_H) // 2
         crop_bottom = H - new_H - crop_top
         crop_left = (W - new_W) // 2
         crop_right = W - new_W - crop_left
-    
+        return img[:, :, crop_top:H - crop_bottom, crop_left:W - crop_right]
+    elif img.ndim == 3:
+        # Unbatched tensor: (C, H, W)
+        C, H, W = img.shape
+        new_H = H - (H % 16)
+        new_W = W - (W % 16)
+        crop_top = (H - new_H) // 2
+        crop_bottom = H - new_H - crop_top
+        crop_left = (W - new_W) // 2
+        crop_right = W - new_W - crop_left
         return img[:, crop_top:H - crop_bottom, crop_left:W - crop_right]
+    else:
+        raise ValueError(f"Unsupported tensor shape: {img.shape}")
+
