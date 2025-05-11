@@ -11,6 +11,15 @@ from model import PoseNet
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from dataset.tartanair import TartanAirDataset
 
+def set_seed(seed=42):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed) 
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
 def main():
     # Initialize wandb
     wandb.login() 
@@ -27,8 +36,7 @@ def main():
     config = wandb.config
 
     # Set random seed for reproducibility
-    random_seed = 42
-    torch.manual_seed(random_seed)
+    set_seed()
 
     # Dataset and splitting
     dataset = TartanAirDataset(root_dir="diffposenet/data", size=(224, 224))
