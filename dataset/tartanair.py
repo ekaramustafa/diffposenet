@@ -71,12 +71,13 @@ class TartanAirDataset(Dataset):
         if img_files:
             img_files.sort()
             temp_images.extend(img_files)
-
+        poses = []
         # load corresponding pose information 
         if pose_file:
             poses = self._read_ground_truth(pose_file)
             temp_poses.extend(poses)
-        
+        else:
+            print("poses empty")
         # the lengths should match
         if len(img_files) != len(poses):
             print("There is a mismatch between the length of image files and pose")
