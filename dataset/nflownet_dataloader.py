@@ -67,12 +67,15 @@ class nflownet_dataloader(Dataset):
 
         if self.img_transform:
             img1 = self.img_transform(img1)
+            img1 = self._crop_to_divisible_by_16(img1)
             img2 = self.img_transform(img2)
+            img2 = self._crop_to_divisible_by_16(img2)
 
         if self.flow_transform:
             flow = self.flow_transform(flow)
         else:
             flow = torch.tensor(flow, dtype=torch.float32)
+        flow = self._crop_to_divisible_by_16(flow)
         paired_images = torch.cat([img1, img2], dim=0)  # shape (6, H, W)
         normal_flow = compute_normal_flow(flow, paired_images)
         return paired_images, flow
@@ -87,3 +90,15 @@ class nflownet_dataloader(Dataset):
         image = Image.open(image_path).convert('RGB')
         image = self.img_transform(image)
         return image
+
+    def _crop_to_divisible_by_16(img: torch.Tensor):
+        B, C, H, W = img.shape
+        new_H = H - (H % 16)
+        new_W = W - (W % 16)
+    
+        crop_top = (H - new_H) // 2
+        crop_bottom = H - new_H - crop_top
+        crop_left = (W - new_W) // 2
+        crop_right = W - new_W - crop_left
+    
+        return img[:, :, crop_top:H-crop_bottom, crop_left:W-crop_right]
