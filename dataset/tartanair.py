@@ -19,13 +19,12 @@ class TartanAirDataset(Dataset):
         ├── root_dir/
         │   ├── env/
         │   ├──── Easy/
-        │   ├──── Hard/
-        │   ├──────── image_left/
-        │   ├───────────── 000000_left.png
-        │   ├───────────── 000001_left.png
-        │   ├───────────── 000002_left.png
-        │   ├──────── pose_left.txt
-        │   ├──────── pose_right.txt
+        │   ├──────── P00/
+        │   ├───────────── image_left/
+        │   ├───────────────── 000001_left.png
+        │   ├───────────────── 000002_left.png
+        │   ├─────────────  pose_left.txt
+        │   ├─────────────  pose_right.txt
         
         """
         self.root_dir = root_dir
@@ -66,7 +65,7 @@ class TartanAirDataset(Dataset):
                                             for image in os.listdir(file_path):
                                                 if image.endswith(".png"):
                                                     img_files.append(os.path.join(file_path,image))
-                                    if file_path.endswith(".txt"):
+                                    if file_path.endswith("left.txt"):
                                         pose_file = file_path
         # load image files
         if img_files:

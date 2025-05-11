@@ -12,6 +12,15 @@ from model import PoseNet
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from dataset.tartanair import TartanAirDataset
 
+def set_seed(seed=42):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed) 
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
 def main():
     # Initialize wandb
     wandb.login()  # Optional if not logged in already
@@ -21,24 +30,21 @@ def main():
         config={
             "learning_rate": 1e-4,
             "batch_size": 8,
-            "epochs": 10,
+            "epochs": 30,
             "optimizer": "Adam"
         }
     )
     config = wandb.config
 
-    # Set random seed
-    random_seed = 42
-    torch.manual_seed(random_seed)
+    # Set random seed for reproducibility
+    set_seed()
 
-    # Dataset
-    dataset = TartanAirDataset(root_dir="diffposenet/data", size=(224, 224))
-    train_size = int(0.8 * len(dataset))
-    val_size = len(dataset) - train_size
-    train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
+    # Dataset and splitting
+    train_dataset = TartanAirDataset(root_dir="diffposenet/data", size=(224, 224))
+    val_dataset = TartanAirDataset(root_dir="diffposenet/data", size=(224, 224))
 
-    train_loader = DataLoader(train_dataset, batch_size=config.batch_size, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=config.batch_size, shuffle=False)
+    train_loader = DataLoader(train_dataset, batch_size=config.batch_size, shuffle=True, num_workers=8, pin_memory=True)
+    val_loader = DataLoader(val_dataset, batch_size=config.batch_size, shuffle=False, num_workers=8, pin_memory=True)
 
     # Model and optimizer
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -113,3 +119,4 @@ def main():
 
 if __name__ == "__main__":
     model = main()
+    torch.save(pose_net.state_dict(), "pose_net_progress.pth")
