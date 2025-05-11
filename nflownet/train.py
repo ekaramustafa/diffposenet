@@ -26,8 +26,8 @@ def set_seed(seed=42):
 
 def train(num_epochs, train_root_dir, test_root_dir):  
     set_seed(42)
-
-    wandb.login()
+    
+    wandb.login(key="66820f29cb45c85261f7dfd317c43275e8d82562")
     wandb.init(
         project="diffposenet",
         name="Nflownet-Training",
