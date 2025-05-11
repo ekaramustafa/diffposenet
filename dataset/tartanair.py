@@ -52,6 +52,7 @@ class TartanAirDataset(Dataset):
         print("Self_root:dir : ", self.root_dir)
         for envs_dir in os.listdir(self.root_dir):
             envs_path = os.path.join(envs_dir, self.root_dir)
+            print("envs_path :", envs_path)
             for env in os.listdir(envs_path):
                 env_path = os.path.join(env, envs_path)
                 print("env_path:dir : ", env_path)
