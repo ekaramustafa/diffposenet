@@ -1,27 +1,57 @@
 import sys
 import os
-from torch.utils.data import DataLoader, Subset
+import random
+import matplotlib.pyplot as plt
+from torch.utils.data import DataLoader, Subset, random_split
 import torch
 import torch.optim as optim
+import wandb
 from model import PoseNet
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from dataset.tartanair import TartanAirDataset
 
 def main():
-    dataset = TartanAirDataset(root_dir="data/image_left", size=(224,224))
-    torch.cuda.empty_cache()
-    train_loader = DataLoader(dataset, batch_size=8, shuffle=True)
-    device = torch.device("cuda")
-    pose_net = PoseNet().to(device)
-    images, translations, rotations = next(iter(train_loader))
-    images = images.to(device)
-    translations = translations.to(device)
-    rotations = rotations.to(device)
+    # Initialize wandb
+    wandb.login() 
+    wandb.init(
+        project="diffposenet",  # change this to your project name
+        name="PoseNet-Training",  # experiment name
+        config={
+            "learning_rate": 1e-4,
+            "batch_size": 8,
+            "epochs": 10,
+            "optimizer": "Adam"
+        }
+    )
+    config = wandb.config
 
-    optimizer = optim.Adam(pose_net.parameters(), lr=1e-4)
-    for epoch in range(10):  
-        total_epoch_loss = 0.0
+    # Set random seed for reproducibility
+    random_seed = 42
+    torch.manual_seed(random_seed)
+
+    # Dataset and splitting
+    dataset = TartanAirDataset(root_dir="diffposenet/data", size=(224, 224))
+    total_size = len(dataset)
+    val_size = int(0.2 * total_size)
+    train_size = total_size - val_size
+    train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
+
+    train_loader = DataLoader(train_dataset, batch_size=config.batch_size, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=config.batch_size, shuffle=False)
+
+    # Model and optimizer
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    pose_net = PoseNet().to(device)
+    optimizer = optim.Adam(pose_net.parameters(), lr=config.learning_rate)
+
+    # Training
+    train_losses = []
+    val_losses = []
+    for epoch in range(config.epochs):
+        pose_net.train()
+        total_train_loss = 0.0
+
         for images, translations, rotations in train_loader:
             images = images.to(device, non_blocking=True)
             translations = translations.to(device, non_blocking=True)
@@ -29,24 +59,59 @@ def main():
 
             optimizer.zero_grad()
             t_pred, q_pred = pose_net(images)
-
             loss = pose_net.pose_loss(t_pred, q_pred, translations, rotations)
-
             loss.backward()
             optimizer.step()
+            total_train_loss += loss.item()
 
-            total_epoch_loss += loss.item()
+        avg_train_loss = total_train_loss / len(train_loader)
+        train_losses.append(avg_train_loss)
 
-        if epoch % 1 == 0:
-            print(f"Epoch {epoch}: Avg Loss = {total_epoch_loss / len(train_loader):.6f}")
+        # Validation
+        pose_net.eval()
+        total_val_loss = 0.0
+        with torch.no_grad():
+            for images, translations, rotations in val_loader:
+                images = images.to(device, non_blocking=True)
+                translations = translations.to(device, non_blocking=True)
+                rotations = rotations.to(device, non_blocking=True)
 
-    print("Finished overfitting entire dataset.")
-        
-        
-    return
-    
+                t_pred, q_pred = pose_net(images)
+                loss = pose_net.pose_loss(t_pred, q_pred, translations, rotations)
+                total_val_loss += loss.item()
 
+        avg_val_loss = total_val_loss / len(val_loader)
+        val_losses.append(avg_val_loss)
+
+        # Log to wandb
+        wandb.log({
+            "epoch": epoch + 1,
+            "train_loss": avg_train_loss,
+            "val_loss": avg_val_loss
+        })
+
+        print(f"Epoch {epoch + 1}/{config.epochs} - Train Loss: {avg_train_loss:.6f}, Val Loss: {avg_val_loss:.6f}")
+
+    # Plot locally
+    plt.figure()
+    plt.plot(range(1, config.epochs + 1), train_losses, label="Train Loss")
+    plt.plot(range(1, config.epochs + 1), val_losses, label="Validation Loss")
+    plt.xlabel("Epoch")
+    plt.ylabel("Loss")
+    plt.title("Training and Validation Loss over Epochs")
+    plt.legend()
+    plt.grid(True)
+    plt.savefig("loss_curve.png")
+    plt.show()
+
+    # Optionally save model
+    # wandb.save("pose_net_progress.pth")
+    # torch.save(pose_net.state_dict(), "pose_net_progress.pth")
+
+    print("Finished training with train/validation split.")
+    wandb.finish()
+    return pose_net
 
 if __name__ == "__main__":
-    main()
-
+    model = main()
+    # torch.save(model, "pose_net_progress.pth")
