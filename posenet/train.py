@@ -2,7 +2,7 @@ import sys
 import os
 import random
 import matplotlib.pyplot as plt
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader, random_split, Subset
 import torch
 import torch.optim as optim
 from tqdm import tqdm
@@ -39,12 +39,14 @@ def main():
 
     # Set random seed for reproducibility
     set_seed()
-
     # Dataset and splitting
     print("============= Loading the Train Dataset =============")
     train_dataset = TartanAirDataset(root_dir="/kuacc/users/imelanlioglu21/comp447_project/tartanair_dataset/train_data/", size=(224, 224))
     print("============= Loading the Validation Dataset =============")
     val_dataset = TartanAirDataset(root_dir="/kuacc/users/imelanlioglu21/comp447_project/tartanair_dataset/test_data/", size=(224, 224))
+    
+    train_dataset = Subset(train_dataset, list(range(0, len(train_dataset), 5)))
+    test_dataset = Subset(test_dataset, list(range(0, len(test_dataset), 8)))
 
     train_loader = DataLoader(train_dataset, batch_size=config.batch_size, shuffle=True, num_workers=4, pin_memory=True)
     val_loader = DataLoader(val_dataset, batch_size=config.batch_size, shuffle=False, num_workers=4, pin_memory=True)
