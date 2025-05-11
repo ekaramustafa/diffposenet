@@ -17,10 +17,15 @@ class TartanAirDataset(Dataset):
         For example, the directory structure should be:
         TartanAir/
         ├── root_dir/
-        │   ├── 000632_left.png
-        │   ├── 000633_left.png
-        │   ├── ...
-        │   └── pose_left.txt
+        │   ├── env/
+        │   ├──── Easy/
+        │   ├──── Hard/
+        │   ├──────── image_left/
+        │   ├───────────── 000000_left.png
+        │   ├───────────── 000001_left.png
+        │   ├───────────── 000002_left.png
+        │   ├──────── pose_left.txt
+        │   ├──────── pose_right.txt
         
         """
         self.root_dir = root_dir
@@ -43,27 +48,39 @@ class TartanAirDataset(Dataset):
     def _load_data(self):
         temp_images = []
         temp_poses = []
+        img_files = []
+        pose_file = None
+        for env_dir in os.listdir(self.root_dir):
+            envs_path = os.path.join(self.root_dir, env_dir)
+            if os.path.isdir(envs_path):
+                for env in os.listdir(envs_path):
+                    env_path = os.path.join(envs_path, env)
+                    for difficulty in os.listdir(env_path):
+                        difficulty_path = os.path.join(env_path, difficulty)
+                        if difficulty == "Easy": 
+                            for traj_dir in os.listdir(difficulty_path):
+                                file_path = os.path.join(difficulty_path, traj_dir)
+                                if os.path.isdir(file_path):
+                                        for image in os.listdir(file_path):
+                                            if image.endswith(".png"):
+                                                img_files.append(os.path.join(file_path,image))
+                                if file_path.endswith(".txt"):
+                                    pose_file = file_path
+        # load image files
+        if img_files:
+            img_files.sort()
+            temp_images.extend(img_files)
+
+        # load corresponding pose information 
+        if pose_file:
+            poses = self._read_ground_truth(pose_file)
+            temp_poses.extend(poses)
         
-        for root, dirs, files in os.walk(self.root_dir):
-            img_files = []
-            pose_file = None
-            
-            for file in files:
-                if file.endswith(".png"):
-                    if self.only_left and "left" not in file:
-                        continue  # consider image_left only
-                    img_files.append(os.path.join(root, file))
-                elif file.endswith(".txt"):
-                    pose_file = os.path.join(root, file)
-            
-            if pose_file and img_files:
-                img_files.sort()
-                poses = self._read_ground_truth(pose_file)
-                
-                if len(img_files) == len(poses):
-                    temp_images.extend(img_files)
-                    temp_poses.extend(poses)
-        
+        # the lengths should match
+        if len(img_files) != len(poses):
+            print("There is a mismatch between the length of image files and pose")
+            return 
+
         loaded_images = [self._load_image(img_path) for img_path in temp_images]
         
         for i in range(len(loaded_images) - self.seq_len):
@@ -152,5 +169,3 @@ class TartanAirDataset(Dataset):
         with open(file_path, "r") as f:
             lines = f.readlines()
             return [list(map(float, line.split())) for line in lines]
-        
-
