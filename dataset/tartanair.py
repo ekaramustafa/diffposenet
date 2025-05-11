@@ -48,7 +48,7 @@ class TartanAirDataset(Dataset):
         temp_images = []
         temp_poses = []
         img_files = []
-        pose_file = None
+        pose_files = []
         for env_dir in os.listdir(self.root_dir):
             envs_path = os.path.join(self.root_dir, env_dir)
             if os.path.isdir(envs_path):
@@ -66,15 +66,17 @@ class TartanAirDataset(Dataset):
                                                 if image.endswith(".png"):
                                                     img_files.append(os.path.join(file_path,image))
                                     if file_path.endswith("left.txt"):
-                                        pose_file = file_path
+                                        pose_files.append(file_path)
         # load image files
+        
         if img_files:
             img_files.sort()
             temp_images.extend(img_files)
         poses = []
         # load corresponding pose information 
-        if pose_file:
-            poses = self._read_ground_truth(pose_file)
+        if pose_files:
+            pose_files.sort()
+            poses = self._read_ground_truth(pose_files)
             temp_poses.extend(poses)
         else:
             print("poses empty")
@@ -166,8 +168,12 @@ class TartanAirDataset(Dataset):
             image = self.transform(image)
         return image
 
-    def _read_ground_truth(self, file_path):
-        lines = []
-        with open(file_path, "r") as f:
-            lines = f.readlines()
-            return [list(map(float, line.split())) for line in lines]
+    def _read_ground_truth(self, file_paths):
+        results = []
+        for file_path in file_paths:
+            lines = []
+            with open(file_path, "r") as f:
+                lines = f.readlines()
+                arr = [list(map(float, line.split())) for line in lines]
+                results.append(arr)
+        return results
