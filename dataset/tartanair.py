@@ -51,28 +51,25 @@ class TartanAirDataset(Dataset):
         pose_files = []
         print("Self_root:dir : ", self.root_dir)
         for envs_dir in os.listdir(self.root_dir):
-            envs_path = os.path.join(self.root_dir, envs_dir)
-            print("envs_path :", envs_path)
-            for env in os.listdir(envs_path):
-                env_path = os.path.join(envs_path,env)
-                print("env_path:dir : ", env_path)
-                for difficulty in os.listdir(env_path):
-                    difficulty_path = os.path.join(env_path, difficulty)
-                    print("difficulty_path:dir : ", difficulty_path)
-                    if difficulty == "Easy": 
-                        for traj_dir in os.listdir(difficulty_path):
-                            traj_path = os.path.join(difficulty_path, traj_dir)
-                            print("traj_path:dir : ", traj_path)
-                            for traj in os.listdir(traj_path):
-                                file_path = os.path.join(traj_path, traj)
-                                print("file_path:dir", file_path)
-                                if os.path.isdir(file_path):
-                                        for image in os.listdir(file_path):
-                                            if image.endswith(".png"):
-                                                img_files.append(os.path.join(file_path,image))
-                                if file_path.endswith("left.txt"):
-                                    pose_files.append(file_path)
-            # load image files
+            env_path = os.path.join(self.root_dir, envs_dir)
+            print("env_path:dir : ", env_path)
+            for difficulty in os.listdir(env_path):
+                difficulty_path = os.path.join(env_path, difficulty)
+                print("difficulty_path:dir : ", difficulty_path)
+                if difficulty == "Easy": 
+                    for traj_dir in os.listdir(difficulty_path):
+                        traj_path = os.path.join(difficulty_path, traj_dir)
+                        print("traj_path:dir : ", traj_path)
+                        for traj in os.listdir(traj_path):
+                            file_path = os.path.join(traj_path, traj)
+                            print("file_path:dir", file_path)
+                            if os.path.isdir(file_path):
+                                    for image in os.listdir(file_path):
+                                        if image.endswith(".png"):
+                                            img_files.append(os.path.join(file_path,image))
+                            if file_path.endswith("left.txt"):
+                                pose_files.append(file_path)
+        # load image files
         # print(img_files[0])
         # print(pose_files[0])
         if img_files:
