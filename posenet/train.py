@@ -8,6 +8,7 @@ import torch.optim as optim
 from tqdm import tqdm
 import wandb
 from model import PoseNet
+import numpy as np
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from dataset.tartanair import TartanAirDataset
