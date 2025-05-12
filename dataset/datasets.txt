@@ -1,6 +1,10 @@
-seasidetown/Easy/image_left.zip 3.179905243
-abandonedfactory/Easy/flow_flow.zip 34.137856465
-abandonedfactory/Easy/image_left.zip 7.074777614
-hospital/Easy/flow_flow.zip 39.195514467
-hospital/Easy/image_left.zip 7.192729599
-
+amusement/Easy/flow_mask.zip 0.126200126
+oldtown/Easy/flow_mask.zip 0.061252062
+neighborhood/Easy/flow_mask.zip 0.280324696
+soulcity/Easy/flow_mask.zip 0.068599353
+japanesealley/Easy/flow_mask.zip 0.018245257
+office/Easy/flow_mask.zip 0.021916721
+office2/Easy/flow_mask.zip 0.025591616
+seasidetown/Easy/flow_mask.zip 0.021687258
+hospital/Easy/flow_mask.zip 0.048007754
+abandonedfactory/Easy/flow_mask.zip 0.061432337
