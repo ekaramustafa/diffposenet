@@ -128,8 +128,8 @@ class TartanAirDownloader(object):
         return True, [zip_path.replace('.zip', '') for zip_path in target_filelist]
     
 if __name__ == "__main__":
-    #downloader = TartanAirDownloader(dataset_info_path="/scratch/users/imelanlioglu21/comp447_project/diffposenet/dataset/datasets.txt")
-    downloader = TartanAirDownloader(dataset_info_path="/content/diffposenet/dataset/datasets.txt")
+    downloader = TartanAirDownloader(dataset_info_path="/scratch/users/imelanlioglu21/comp447_project/diffposenet/dataset/datasets.txt")
+    #downloader = TartanAirDownloader(dataset_info_path="/content/diffposenet/dataset/datasets.txt")
     downloader.load(levellist=['Easy'], typelist=['flow'], cameralist=['left', 'mask'])
     bl, lst = downloader.download("/scratch/users/imelanlioglu21/comp447_project/tartanair_dataset", ["amusement", "oldtown", "neighborhood", 
                                                                            "soulcity", "japanesealley", "office", 
