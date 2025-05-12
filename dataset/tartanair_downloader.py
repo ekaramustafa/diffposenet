@@ -63,10 +63,7 @@ class TartanAirDownloader(object):
         self._isloaded = True
 
     
-    def download(self, destination_path : str, environments : List[str] = ["amusement", "oldtown", "neighborhood", 
-                                                                           "soulcity", "japanesealley", "office", 
-                                                                           "office2", "seasidetown", 
-                                                                           "abandonedfactory", "hospital"]):
+    def download(self, destination_path : str, environments : List[str] = ["office2"]):
         """
         Downloads files from the specified environment and saves them to the given local path.
 
@@ -131,8 +128,5 @@ if __name__ == "__main__":
     downloader = TartanAirDownloader(dataset_info_path="/scratch/users/imelanlioglu21/comp447_project/diffposenet/dataset/datasets.txt")
     #downloader = TartanAirDownloader(dataset_info_path="/content/diffposenet/dataset/datasets.txt")
     downloader.load(levellist=['Easy'], typelist=['flow'], cameralist=['left', 'mask'])
-    bl, lst = downloader.download("/scratch/users/imelanlioglu21/comp447_project/tartanair_dataset", ["amusement", "oldtown", "neighborhood", 
-                                                                           "soulcity", "japanesealley", "office", 
-                                                                           "office2", "seasidetown", 
-                                                                           "abandonedfactory", "hospital"])
+    bl, lst = downloader.download("/scratch/users/imelanlioglu21/comp447_project/tartanair_dataset", ["office2"])
     print(lst)
