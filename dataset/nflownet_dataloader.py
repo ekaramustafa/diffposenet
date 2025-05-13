@@ -1,4 +1,3 @@
-
 import os
 import numpy as np
 import torch
@@ -6,6 +5,7 @@ from torch.utils.data import Dataset
 from torchvision import transforms
 from PIL import Image
 import glob
+import warnings
 from nflownet.utils import compute_normal_flow
 
 
@@ -45,7 +45,7 @@ class nflownet_dataloader(Dataset):
                                             flow = flow_files[i]
                                             self.data_paths.append((img1, img2, flow))
                                     else:
-                                        print(f"Length mismatch in {traj_path}")
+                                        warnings.warn(f"Length mismatch in {traj_entry.path}")
                                     
 
     def __len__(self):
@@ -74,24 +74,8 @@ class nflownet_dataloader(Dataset):
         return image
 
     def _crop_to_divisible_by_16(self, img: torch.Tensor):
-        if img.ndim == 4:
-            B, C, H, W = img.shape
-            new_H = H - (H % 16)
-            new_W = W - (W % 16)
-            crop_top = (H - new_H) // 2
-            crop_bottom = H - new_H - crop_top
-            crop_left = (W - new_W) // 2
-            crop_right = W - new_W - crop_left
-            return img[:, :, crop_top:H - crop_bottom, crop_left:W - crop_right]
-        elif img.ndim == 3:
-            C, H, W = img.shape
-            new_H = H - (H % 16)
-            new_W = W - (W % 16)
-            crop_top = (H - new_H) // 2
-            crop_bottom = H - new_H - crop_top
-            crop_left = (W - new_W) // 2
-            crop_right = W - new_W - crop_left
-            return img[:, crop_top:H - crop_bottom, crop_left:W - crop_right]
-        else:
-            raise ValueError(f"Unsupported tensor shape: {img.shape}")
+        C, H, W = img.shape
+        new_H = H - (H % 16)
+        new_W = W - (W % 16)
+        return img[:, :new_H, :new_W]
 
