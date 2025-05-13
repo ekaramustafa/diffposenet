@@ -121,7 +121,7 @@ def train(num_epochs, batch_size, train_root_dir, test_root_dir):
         running_test_loss = 0.0
         pbar = tqdm(test_loader, desc=f"Epoch [{epoch + 1}/{num_epochs}]", disable=not accelerator.is_local_main_process)
         with torch.no_grad():
-            for paired_batch, normal_flow_batch in test_loader:
+            for paired_batch, normal_flow_batch in pbar:
                 outputs = model(paired_batch)
                 loss = criterion(outputs, normal_flow_batch)
                 if torch.isnan(loss) or loss.item() > 1e5:
