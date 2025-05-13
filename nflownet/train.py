@@ -62,15 +62,20 @@ def train(num_epochs, batch_size, train_root_dir, test_root_dir):
     test_dataset = nflownet_dataloader(root_dir_path=test_root_dir)
     torch.cuda.empty_cache()
 
-    # Take random 1/3 subset
+    # Take random 1/3 subset of test
     indices = torch.randperm(len(test_dataset)).tolist()[:len(test_dataset) // 3]
     test_dataset = Subset(test_dataset, indices)
 
+    # Take 1/100 subset of train
+    indices = torch.randperm(len(train_dataset)).tolist()[:len(test_dataset) // 100]
+    train_dataset = Subset(train_dataset, indices)
+
+    
     if accelerator.is_local_main_process:
         print("\n============= Dataloaders =============")
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True)
-    test_loader_log = DataLoader(test_dataset, batch_size=batch_size, shuffle=True, drop_last=True, pin_memory=True)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=2, pin_memory=False, persistent_workers=False)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=2, pin_memory=False, persistent_workers=False)
+    test_loader_log = DataLoader(test_dataset, batch_size=batch_size, shuffle=True, drop_last=True, pin_memory=False, persistent_workers=False)
 
     print(f"Training set contains {len(train_dataset)} samples.")
     print(f"Validation set contains {len(test_dataset)} samples.")
@@ -90,6 +95,7 @@ def train(num_epochs, batch_size, train_root_dir, test_root_dir):
 
     if accelerator.is_local_main_process:
         print("\n============= Training Loop =============")
+    torch.autograd.set_detect_anomaly(True)
     for epoch in range(num_epochs):
         model.train()
         running_train_loss = 0.0
@@ -113,11 +119,17 @@ def train(num_epochs, batch_size, train_root_dir, test_root_dir):
         accelerator.wait_for_everyone()
         model.eval()
         running_test_loss = 0.0
+        pbar = tqdm(test_loader, desc=f"Epoch [{epoch + 1}/{num_epochs}]", disable=not accelerator.is_local_main_process)
         with torch.no_grad():
             for paired_batch, normal_flow_batch in test_loader:
                 outputs = model(paired_batch)
                 loss = criterion(outputs, normal_flow_batch)
+                if torch.isnan(loss) or loss.item() > 1e5:
+                    print(f"⚠️  Skipping batch in TRAIN: loss={loss.item()}")
+                    continue
                 running_test_loss += loss.item()
+                pbar.set_postfix({'Batch Loss': loss.item()})
+            
 
         avg_test_loss = running_test_loss / len(test_loader)
         test_losses.append(avg_test_loss)
