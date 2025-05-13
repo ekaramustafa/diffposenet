@@ -10,6 +10,7 @@ from torch.utils.data import DataLoader
 import torchvision.transforms.functional as TF
 import torch.optim as optim
 from tqdm import tqdm
+from torch.utils.data import Subset
 
 from accelerate import Accelerator
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -59,6 +60,10 @@ def train(num_epochs, batch_size, train_root_dir, test_root_dir):
     train_dataset = nflownet_dataloader(root_dir_path=train_root_dir)
     test_dataset = nflownet_dataloader(root_dir_path=test_root_dir)
     torch.cuda.empty_cache()
+
+    # Take random 1/3 subset
+    indices = torch.randperm(len(test_dataset)).tolist()[:len(test_dataset) // 3]
+    test_dataset = Subset(test_dataset, indices)
     
     print("\n============= Dataloaders =============")
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=16, pin_memory=True)
