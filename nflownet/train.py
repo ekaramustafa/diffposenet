@@ -31,16 +31,17 @@ def train(num_epochs, batch_size, train_root_dir, test_root_dir):
     accelerator = Accelerator()
 
     if accelerator.is_local_main_process:
-        print("\n============= Device Info =============")
-        print(f"Accelerator Device: {accelerator.device}")
-        print(f"CUDA Available: {torch.cuda.is_available()}")
-        print(f"PyTorch Version: {torch.__version__}")
-        print(f"CUDA Version: {torch.version.cuda}")
-        print(f"cuDNN Version: {torch.backends.cudnn.version()}")
-        print(f"Number of GPUs: {torch.cuda.device_count()}")
+        print("\n============= Accelerator Info =============")
+        print(f"Device: {accelerator.device}")
+        print(f"Number of GPUs used: {accelerator.num_processes}")
+        print(f"Process rank: {accelerator.process_index}")
+        print(f"Total processes: {accelerator.state.num_processes}")
+        print(f"Mixed precision: {accelerator.mixed_precision}")
         if torch.cuda.is_available():
+            print(f"CUDA device count: {torch.cuda.device_count()}")
             for i in range(torch.cuda.device_count()):
                 print(f"  GPU {i}: {torch.cuda.get_device_name(i)}")
+                
         print("\n============= Setting Up Wandb =============")
         wandb.login(key="66820f29cb45c85261f7dfd317c43275e8d82562")
         wandb.init(
@@ -60,9 +61,9 @@ def train(num_epochs, batch_size, train_root_dir, test_root_dir):
     torch.cuda.empty_cache()
     
     print("\n============= Dataloaders =============")
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=8, pin_memory=True)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=8, pin_memory=True)
-    test_loader_log = DataLoader(test_dataset, batch_size=batch_size, shuffle=True, drop_last=True, num_workers=8, pin_memory=True)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=16, pin_memory=True)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=16, pin_memory=True)
+    test_loader_log = DataLoader(test_dataset, batch_size=batch_size, shuffle=True, drop_last=True, pin_memory=True)
 
     print(f"Training set contains {len(train_dataset)} samples.")
     print(f"Validation set contains {len(test_dataset)} samples.")
