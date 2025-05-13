@@ -63,8 +63,8 @@ def train(num_epochs, batch_size, train_root_dir, test_root_dir):
     torch.cuda.empty_cache()
 
     # Take random 1/3 subset of test
-    indices = torch.randperm(len(test_dataset)).tolist()[:len(test_dataset) // 3]
-    test_dataset = Subset(test_dataset, indices)
+    #indices = torch.randperm(len(test_dataset)).tolist()[:len(test_dataset) // 3]
+    #test_dataset = Subset(test_dataset, indices)
 
     # Take 1/100 subset of train
     indices = torch.randperm(len(train_dataset)).tolist()[:len(test_dataset) // 100]
