@@ -100,6 +100,7 @@ def train(num_epochs, batch_size, train_root_dir, test_root_dir):
         print(f" Average Train Loss: {avg_train_loss:.6f}")
 
         # ------------------- Validation -------------------
+        accelerator.wait_for_everyone()
         model.eval()
         running_test_loss = 0.0
         with torch.no_grad():
