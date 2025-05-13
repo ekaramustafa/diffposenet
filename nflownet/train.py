@@ -5,15 +5,15 @@ import random
 import torch
 import numpy as np
 import torch.nn as nn
-from torch.utils.data import DataLoader, random_split
+from torchvision.utils import flow_to_image
+from torch.utils.data import DataLoader
 import torchvision.transforms.functional as TF
 import torch.optim as optim
-import matplotlib.pyplot as plt
 from tqdm import tqdm
-from torch.utils.data import Subset
+
+from accelerate import Accelerator
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from dataset.nflownet_dataloader import nflownet_dataloader
-from nflownet.utils import compute_normal_flow
 from nflownet.model import NFlowNet
 
 def set_seed(seed=42):
@@ -26,85 +26,85 @@ def set_seed(seed=42):
     torch.backends.cudnn.benchmark = False
 
 
-def train(num_epochs, train_root_dir, test_root_dir):  
-    set_seed(42)
-    
-    wandb.login(key="66820f29cb45c85261f7dfd317c43275e8d82562")
-    wandb.init(
-        project="diffposenet",
-        name="Nflownet-Training-HPC",
-        config={
-            "learning_rate": 0.001,
-            "epochs": num_epochs,
-            "batch_size": 8,
-            "optimizer": "Adam",
-        }
-    )
-    
-    print("============= Loading the Train Dataset =============")
+def train(num_epochs, batch_size, train_root_dir, test_root_dir):  
+    set_seed()
+    accelerator = Accelerator()
+
+    if accelerator.is_local_main_process:
+        print("\n============= Device Info =============")
+        print(f"Accelerator Device: {accelerator.device}")
+        print(f"CUDA Available: {torch.cuda.is_available()}")
+        print(f"PyTorch Version: {torch.__version__}")
+        print(f"CUDA Version: {torch.version.cuda}")
+        print(f"cuDNN Version: {torch.backends.cudnn.version()}")
+        print(f"Number of GPUs: {torch.cuda.device_count()}")
+        if torch.cuda.is_available():
+            for i in range(torch.cuda.device_count()):
+                print(f"  GPU {i}: {torch.cuda.get_device_name(i)}")
+        print("\n============= Setting Up Wandb =============")
+        wandb.login(key="66820f29cb45c85261f7dfd317c43275e8d82562")
+        wandb.init(
+            project="diffposenet",
+            name="Nflownet-Training-HPC",
+            config={
+                "learning_rate": 0.001,
+                "epochs": num_epochs,
+                "batch_size": batch_size,
+                "optimizer": "Adam",
+            }
+        )
+
+    print("\n============= Loading Datasets =============")
     train_dataset = nflownet_dataloader(root_dir_path=train_root_dir)
-    print("Success")
-    print("============= Loading the Validation Dataset =============")
     test_dataset = nflownet_dataloader(root_dir_path=test_root_dir)
     torch.cuda.empty_cache()
-    print("Success")
     
-    print("============= Dataloaders =============")
-    train_loader = DataLoader(train_dataset, batch_size=8, shuffle=True, num_workers=4, pin_memory=True)
-    test_loader = DataLoader(test_dataset, batch_size=8, shuffle=False, num_workers=4, pin_memory=True)
+    print("\n============= Dataloaders =============")
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True)
+    test_loader_log = DataLoader(test_dataset, batch_size=batch_size, shuffle=True, drop_last=True, num_workers=4, pin_memory=True)
 
-    print(f"Training set size: {len(train_dataset)}")
-    print(f"Validation set size: {len(test_dataset)}")
+    print(f"Training set contains {len(train_dataset)} samples.")
+    print(f"Validation set contains {len(test_dataset)} samples.")
     
-    print("============= Initializing the Model =============")
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    nflow_net = NFlowNet(base_channels=64)
-    if torch.cuda.device_count() > 1:
-        print(f"Using {torch.cuda.device_count()} GPUs")
-        nflow_net = nn.DataParallel(nflow_net)
-    nflow_net = nflow_net.to(device)
-    optimizer = torch.optim.Adam(nflow_net.parameters(), lr=1e-4)
+    print("\n============= Initializing the Model =============") 
+    model = NFlowNet(base_channels=64)
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
     criterion = nn.MSELoss()
 
+    model, optimizer, train_loader, test_loader, test_loader_log = accelerator.prepare(
+        model, optimizer, train_loader, test_loader, test_loader_log
+    )
+
     train_losses = []
-    test_losses = []
+    test_losses = []  
 
-
-    print("============= Training Loop =============")
-    num_epochs = num_epochs
+    print("\n============= Training Loop =============")
     for epoch in range(num_epochs):
-        nflow_net.train()
+        model.train()
         running_train_loss = 0.0
-        batch_losses = []
-
-        pbar = tqdm(train_loader, desc=f"Epoch [{epoch + 1}/{num_epochs}]")
+        pbar = tqdm(train_loader, desc=f"Epoch [{epoch + 1}/{num_epochs}]", disable=not accelerator.is_local_main_process)
 
         for paired_batch, normal_flow_batch in pbar:
-            paired_batch, normal_flow_batch = paired_batch.to(device), normal_flow_batch.to(device)
-
             optimizer.zero_grad()
-            outputs = nflow_net(paired_batch)
-
+            outputs = model(paired_batch)
             loss = criterion(outputs, normal_flow_batch)
-            loss.backward()
+            accelerator.backward(loss)
             optimizer.step()
 
             running_train_loss += loss.item()
-            batch_losses.append(loss.item())
-
             pbar.set_postfix({'Batch Loss': loss.item()})
 
         avg_train_loss = running_train_loss / len(train_loader)
         train_losses.append(avg_train_loss)
-        print(f" Avg Train Loss: {avg_train_loss:.6f}")
+        print(f" Average Train Loss: {avg_train_loss:.6f}")
 
-        # ----- Evaluation on Validation Data -----
-        nflow_net.eval()
+        # ------------------- Validation -------------------
+        model.eval()
         running_test_loss = 0.0
         with torch.no_grad():
             for paired_batch, normal_flow_batch in test_loader:
-                paired_batch, normal_flow_batch = paired_batch.to(device), normal_flow_batch.to(device)
-                outputs = nflow_net(paired_batch)
+                outputs = model(paired_batch)
                 loss = criterion(outputs, normal_flow_batch)
                 running_test_loss += loss.item()
 
@@ -112,114 +112,58 @@ def train(num_epochs, train_root_dir, test_root_dir):
         test_losses.append(avg_test_loss)
         print(f"Epoch [{epoch + 1}/{num_epochs}], Validation Loss: {avg_test_loss:.6f}")
 
+
         # ----- Log Sample Predictions to wandb -----
-        nflow_net.eval()
-        sample_images = []
-        logged = 0
-        max_samples = 8
-        with torch.no_grad():
-            for paired_batch, normal_flow_batch in test_loader:
-                paired_batch = paired_batch.to(device)
-                normal_flow_batch = normal_flow_batch.to(device)
-                pred_flow = nflow_net(paired_batch).cpu()
-                input_images = paired_batch.cpu()
+        if accelerator.is_local_main_process:
+            images_to_log = {}
+            max_samples = 8
+            with torch.no_grad():
+                for paired_batch, normal_flow_batch in test_loader_log:
+                    pred_flow = model(paired_batch)
+                    pred_flow = flow_to_image(pred_flow)
+                    gt_flow = flow_to_image(normal_flow_batch)
 
-                batch_size = paired_batch.size(0)
-                for j in range(batch_size):
-                    if logged >= max_samples:
-                        break
-
-                    img1 = input_images[j][:3]
-                    img2 = input_images[j][3:]
-                    flow_pred = pred_flow[j]
-                    flow_gt = normal_flow_batch[j].cpu()
-
-                    flow_pred_mag = flow_pred.norm(dim=0)
-                    flow_gt_mag = flow_gt.norm(dim=0)
-
-                    flow_pred_x = flow_pred[0].numpy()  # x-direction
-                    flow_pred_y = flow_pred[1].numpy()  # y-direction
-                    flow_gt_x = flow_gt[0].numpy()
-                    flow_gt_y = flow_gt[1].numpy()
-
-                    # Convert images and flow magnitudes to numpy arrays
-                    img1_np = img1.numpy()
-                    img2_np = img2.numpy()
-                    flow_pred_mag_np = flow_pred_mag.numpy()
-                    flow_gt_mag_np = flow_gt_mag.numpy()
-
-                    # Convert images to PIL for visualization in wandb
-                    img1_pil = TF.to_pil_image(img1)
-                    img2_pil = TF.to_pil_image(img2)
-
-                    # Visualize predictions and ground truth
-                    fig, axes = plt.subplots(2, 4, figsize=(24, 12))
-                    # Row 1: Inputs + Predicted Flow
-                    axes[0, 0].imshow(img1_pil)
-                    axes[0, 0].set_title("Image 1")
-                    axes[0, 1].imshow(img2_pil)
-                    axes[0, 1].set_title("Image 2")
-                    axes[0, 2].imshow(flow_pred_mag, cmap='viridis')
-                    axes[0, 2].set_title("Predicted Flow Mag")
-                    axes[0, 3].imshow(flow_gt_mag, cmap='viridis')
-                    axes[0, 3].set_title("Ground Truth Flow Mag")
-
-                    # Row 2: x & y components
-                    axes[1, 0].imshow(flow_pred_x, cmap='coolwarm')
-                    axes[1, 0].set_title("Pred Flow X")
-                    axes[1, 1].imshow(flow_gt_x, cmap='coolwarm')
-                    axes[1, 1].set_title("GT Flow X")
-                    axes[1, 2].imshow(flow_pred_y, cmap='coolwarm')
-                    axes[1, 2].set_title("Pred Flow Y")
-                    axes[1, 3].imshow(flow_gt_y, cmap='coolwarm')
-                    axes[1, 3].set_title("GT Flow Y")
-
-                    for ax_row in axes:
-                        for ax in ax_row:
-                            ax.axis("off")
-
-                    fig.tight_layout()
-                    sample_images.append(wandb.Image(fig, caption=f"Sample {logged + 1}"))
-                    plt.close(fig)
-
-                    logged += 1
-
-                if logged >= max_samples:
+                    batch_size = paired_batch.size(0)
+                    for j in range(min(batch_size, max_samples)):
+                        img1 = TF.to_pil_image(paired_batch[j][:3].cpu())
+                        img2 = TF.to_pil_image(paired_batch[j][3:].cpu())
+                        flow_pred = TF.to_pil_image(pred_flow[j].cpu())
+                        flow_gt = TF.to_pil_image(gt_flow[j].cpu())
+                        
+                        images_to_log[f"Sample {j+1} - Image 1"] = wandb.Image(img1, caption="Input Image 1")
+                        images_to_log[f"Sample {j+1} - Image 2"] = wandb.Image(img2, caption="Input Image 2")
+                        images_to_log[f"Sample {j+1} - Predicted Normal Flow"] = wandb.Image(flow_pred, caption="Predicted Normal Flow")
+                        images_to_log[f"Sample {j+1} - Ground Truth Normal Flow"] = wandb.Image(flow_gt, caption="Ground Truth Normal Flow")
                     break
+                       
+            wandb.log({
+                "epoch": epoch + 1,
+                "train_loss": avg_train_loss,
+                "validation_loss": avg_test_loss,
+                **images_to_log
+            })
 
-        # Log images and scalar losses to wandb
-        wandb.log({
-        f"sample_predictions_epoch_{epoch+1}": sample_images,
-        "epoch": epoch + 1,
-        "train_loss": avg_train_loss,
-        "validation_loss": avg_test_loss,
-        f"raw_samples_epoch_{epoch+1}": {
-            "image1": [img1_np for img1_np in sample_images],
-            "image2": [img2_np for img2_np in sample_images],
-            "pred_flow_mag": [flow_pred_mag_np for flow_pred_mag_np in sample_images],
-            "gt_flow_mag": [flow_gt_mag_np for flow_gt_mag_np in sample_images],
-            "pred_flow_x": [flow_pred_x_np for flow_pred_x_np in sample_images],
-            "gt_flow_x": [flow_gt_x_np for flow_gt_x_np in sample_images],
-            "pred_flow_y": [flow_pred_y_np for flow_pred_y_np in sample_images],
-            "gt_flow_y": [flow_gt_y_np for flow_gt_y_np in sample_images],
-        }
-    })
-
-        if epoch % 50 == 0:
-            torch.save(nflow_net.state_dict(), f"nflownet_epoch_{epoch}.pth")
-            print(f"Model saved to nflownet_epoch_{epoch}.pth")
+            if epoch % 20 == 0:
+                accelerator.wait_for_everyone()
+                model_to_save = accelerator.unwrap_model(model)
+                torch.save(model_to_save.state_dict(), f"nflownet_epoch_{epoch}.pth")
+                print(f"Model saved to nflownet_epoch_{epoch}.pth")
 
     # Save model after training
-    torch.save(nflow_net.state_dict(), "nflownet_final.pth")
+    accelerator.wait_for_everyone()
+    model_final = accelerator.unwrap_model(model)
+    torch.save(model_final.state_dict(), "nflownet_final.pth")
     print("Model saved to nflownet_final.pth")
 
-    wandb.log({"train_loss": train_losses, "validation_loss": test_losses})
-    wandb.finish()
+    if accelerator.is_local_main_process:
+        wandb.log({"train_loss_curve": train_losses, "validation_loss_curve": test_losses})
+        wandb.finish()
 
     return train_losses, test_losses
 
 if __name__ == "__main__":
     num_epochs = 400
+    batch_size = 16
     train_root_dir = "/kuacc/users/imelanlioglu21/comp447_project/tartanair_dataset/train_data/"
     test_root_dir = "/kuacc/users/imelanlioglu21/comp447_project/tartanair_dataset/test_data/"
-    train_losses, test_losses = train(num_epochs, train_root_dir, test_root_dir)
+    train_losses, test_losses = train(num_epochs, batch_size, train_root_dir, test_root_dir)
