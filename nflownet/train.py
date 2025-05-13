@@ -31,7 +31,7 @@ def train(num_epochs, batch_size, train_root_dir, test_root_dir):
     set_seed()
     accelerator = Accelerator()
 
-    if True:
+    if accelerator.is_local_main_process:
         print("\n============= Accelerator Info =============")
         print(f"Device: {accelerator.device}")
         print(f"Number of GPUs used: {accelerator.num_processes}")
