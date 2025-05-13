@@ -61,7 +61,8 @@ def train(num_epochs, batch_size, train_root_dir, test_root_dir):
     
     print("\n============= Dataloaders =============")
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True)
+    test_loader_log = DataLoader(test_dataset, batch_size=batch_size, shuffle=True, drop_last=True, num_workers=4, pin_memory=True)
 
     print(f"Training set contains {len(train_dataset)} samples.")
     print(f"Validation set contains {len(test_dataset)} samples.")
@@ -71,8 +72,8 @@ def train(num_epochs, batch_size, train_root_dir, test_root_dir):
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
     criterion = nn.MSELoss()
 
-    model, optimizer, train_loader, test_loader = accelerator.prepare(
-        model, optimizer, train_loader, test_loader
+    model, optimizer, train_loader, test_loader, test_loader_log = accelerator.prepare(
+        model, optimizer, train_loader, test_loader, test_loader_log
     )
 
     train_losses = []
@@ -117,7 +118,7 @@ def train(num_epochs, batch_size, train_root_dir, test_root_dir):
             images_to_log = {}
             max_samples = 8
             with torch.no_grad():
-                for paired_batch, normal_flow_batch in test_loader:
+                for paired_batch, normal_flow_batch in test_loader_log:
                     pred_flow = model(paired_batch)
                     pred_flow = flow_to_image(pred_flow)
                     gt_flow = flow_to_image(normal_flow_batch)
