@@ -60,9 +60,9 @@ def train(num_epochs, batch_size, train_root_dir, test_root_dir):
     torch.cuda.empty_cache()
     
     print("\n============= Dataloaders =============")
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True)
-    test_loader_log = DataLoader(test_dataset, batch_size=batch_size, shuffle=True, drop_last=True, num_workers=4, pin_memory=True)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=8, pin_memory=True)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=8, pin_memory=True)
+    test_loader_log = DataLoader(test_dataset, batch_size=batch_size, shuffle=True, drop_last=True, num_workers=8, pin_memory=True)
 
     print(f"Training set contains {len(train_dataset)} samples.")
     print(f"Validation set contains {len(test_dataset)} samples.")
