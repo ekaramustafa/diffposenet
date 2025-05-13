@@ -16,10 +16,7 @@ class nflownet_dataloader(Dataset):
         self.img_transform = img_transform
         self.env_count = 0
         if img_transform is None:
-            self.img_transform = transforms.Compose([
-                transforms.Resize((224, 224)),
-                transforms.ToTensor()
-            ])
+            self.img_transform = transforms.ToTensor()
 
         self._load_paths()
         
@@ -76,9 +73,8 @@ class nflownet_dataloader(Dataset):
         image = self._crop_to_divisible_by_16(image)
         return image
 
-    #def _crop_to_divisible_by_16(self, img: torch.Tensor):
-    #    C, H, W = img.shape
-    #    new_H = H - (H % 16)
-    #    new_W = W - (W % 16)
-    #    return img[:, :new_H, :new_W]
-
+    def _crop_to_divisible_by_16(self, img: torch.Tensor):
+        C, H, W = img.shape
+        new_H = H - (H % 16)
+        new_W = W - (W % 16)
+        return img[:, :new_H, :new_W]
