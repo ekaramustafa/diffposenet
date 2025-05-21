@@ -58,19 +58,19 @@ def main():
     train_dataset = Subset(train_dataset, list(range(0, len(train_dataset), 5)))
     val_dataset = Subset(val_dataset, list(range(0, len(val_dataset), 8)))
 
-    train_loader = DataLoader(train_dataset, batch_size=config.batch_size, shuffle=True, num_workers=4, pin_memory=True)
-    val_loader = DataLoader(val_dataset, batch_size=config.batch_size, shuffle=False, num_workers=4, pin_memory=True)
+    train_loader = DataLoader(train_dataset, batch_size=config["batch_size"], shuffle=True, num_workers=4, pin_memory=True)
+    val_loader = DataLoader(val_dataset, batch_size=config["batch_size"], shuffle=False, num_workers=4, pin_memory=True)
 
     # Model, processor and optimizer
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     pose_net = PoseNet().to(device)
     processor = AutoImageProcessor.from_pretrained("facebook/dinov2-base")
-    optimizer = optim.Adam(pose_net.parameters(), lr=config.learning_rate)
+    optimizer = optim.Adam(pose_net.parameters(), lr=config["learning_rate"])
 
     train_losses = []
     val_losses = []
 
-    for epoch in range(config.epochs):
+    for epoch in range(config["epochs"]):
         pose_net.train()
         total_train_loss = 0.0
 
@@ -124,12 +124,12 @@ def main():
             "val_loss": avg_val_loss
         })
 
-        print(f"Epoch {epoch+1}/{config.epochs} - Train Loss: {avg_train_loss:.6f} - Val Loss: {avg_val_loss:.6f}")
+        print(f"Epoch {epoch+1}/{config['epochs']} - Train Loss: {avg_train_loss:.6f} - Val Loss: {avg_val_loss:.6f}")
 
     # Plot + save
     plt.figure()
-    plt.plot(range(1, config.epochs + 1), train_losses, label="Train Loss")
-    plt.plot(range(1, config.epochs + 1), val_losses, label="Validation Loss")
+    plt.plot(range(1, config["epochs"] + 1), train_losses, label="Train Loss")
+    plt.plot(range(1, config["epochs"] + 1), val_losses, label="Validation Loss")
     plt.xlabel("Epoch")
     plt.ylabel("Loss")
     plt.title("Training and Validation Loss over Epochs")
@@ -146,4 +146,4 @@ def main():
 
 if __name__ == "__main__":
     model = main()
-    torch.save(pose_net.state_dict(), "pose_net_progress.pth")
+    # torch.save(model.state_dict(), "pose_net_progress.pth")
