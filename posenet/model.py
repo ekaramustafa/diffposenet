@@ -29,10 +29,10 @@ class PoseNet(nn.Module):
         
         feats = torch.stack(cnn_feats, dim=1)  # shape: [B, seq_len, feat_dim]
         lstm_out, _ = self.lstm(feats)         # shape: [B, seq_len, 250]
-        pose = self.pose_fc(lstm_out[:, -1])   # use last output for pose
+        pose = self.pose_fc(lstm_out)   # use last output for pose
         t = pose[:, :3]
         q = pose[:, 3:]
-        q = q / q.norm(dim=1, keepdim=True)     # normalize quaternion
+        q = q / q.norm(dim=2, keepdim=True)     # normalize quaternion
 
         return t, q
 
