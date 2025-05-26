@@ -45,7 +45,7 @@ class PoseNet(nn.Module):
         q_pred = F.normalize(q_pred, p=2, dim=2)
         q_gt = F.normalize(q_gt, p=2, dim=2)
         
-        dot = torch.sum(q_pred * q_gt, dim=1)
+        dot = torch.sum(q_pred * q_gt, dim=2)
         dot = torch.clamp(dot, -1.0, 1.0)
         
         loss = 1.0 - torch.abs(dot)

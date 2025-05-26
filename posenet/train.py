@@ -57,6 +57,12 @@ def main():
 
     train_losses = []
     val_losses = []
+    images, translations, rotations = next(iter(train_loader))
+    print(images.shape)
+    print(translations.shape)
+    print(rotations.shape)
+
+    return
 
     for epoch in range(config["epochs"]):
         pose_net.train()
