@@ -19,20 +19,23 @@ class PoseNet(nn.Module):
         self.pose_fc = nn.Linear(self.hidden_dim, 7)
 
     def forward(self, x):
-        batch_size, seq_len, C, H, W = x.shape
+        batch_size, seq_len, C, H, W = x.shape  # [B, 6, 3, H, W]
         cnn_feats = []
 
         for t in range(seq_len):
-            feat = self.cnn(x[:, t])       # shape: [B, 512, 7, 7]
-            feat = feat.view(batch_size, -1)  # flatten
+            feat = self.cnn(x[:, t])           # [B, 512, 7, 7]
+            feat = feat.view(batch_size, -1)   # [B, feat_dim]
             cnn_feats.append(feat)
-        
-        feats = torch.stack(cnn_feats, dim=1)  # shape: [B, seq_len, feat_dim]
-        lstm_out, _ = self.lstm(feats)         # shape: [B, seq_len, 250]
-        pose = self.pose_fc(lstm_out)   # use last output for pose
-        t = pose[:, :3]
-        q = pose[:, 3:]
-        q = q / q.norm(dim=2, keepdim=True)     # normalize quaternion
+
+        feats = torch.stack(cnn_feats, dim=1)  # [B, 6, feat_dim]
+        lstm_out, _ = self.lstm(feats)         # [B, 6, hidden_dim]
+
+        lstm_out = lstm_out[:, 1:]             # [B, 5, hidden_dim] – for relative poses
+        pose = self.pose_fc(lstm_out)          # [B, 5, 7]
+
+        t = pose[:, :, :3]                     # [B, 5, 3]
+        q = pose[:, :, 3:]                     # [B, 5, 4]
+        q = q / q.norm(dim=2, keepdim=True)    # normalize quaternion
 
         return t, q
 
