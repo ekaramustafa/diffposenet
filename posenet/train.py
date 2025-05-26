@@ -24,42 +24,41 @@ def set_seed(seed=42):
 
 def main():
     # Initialize wandb
-    wandb.login(key="66820f29cb45c85261f7dfd317c43275e8d82562")
-    wandb.init(
-        project="diffposenet",
-        name="PoseNet-Training",
-        config={
-            "learning_rate": 1e-4,
-            "batch_size": 8,
-            "epochs": 30,
-            "optimizer": "Adam"
-        }
-    )
-    config = wandb.config
-
+    # wandb.login(key="66820f29cb45c85261f7dfd317c43275e8d82562")
+    config = {
+        "learning_rate": 1e-5,
+        "batch_size" : 8,
+        "epochs": 30,
+    }
+    # wandb.init(
+    #     project="diffposenet",
+    #     name="PoseNet-Training",
+    #     config=config
+    # )
+    # config = wandb.config
     # Set random seed for reproducibility
     set_seed()
     # Dataset and splitting
     print("============= Loading the Train Dataset =============")
-    train_dataset = TartanAirDataset(root_dir="/kuacc/users/imelanlioglu21/comp447_project/tartanair_dataset/train_data/", size=(224, 224))
+    train_dataset = TartanAirDataset(root_dir="/kuacc/users/imelanlioglu21/comp447_project/tartanair_dataset/train_data/", size=(224, 224), seq_len=6)
     print("============= Loading the Validation Dataset =============")
-    val_dataset = TartanAirDataset(root_dir="/kuacc/users/imelanlioglu21/comp447_project/tartanair_dataset/test_data/", size=(224, 224))
+    val_dataset = TartanAirDataset(root_dir="/kuacc/users/imelanlioglu21/comp447_project/tartanair_dataset/test_data/", size=(224, 224), seq_len=6)
     
     train_dataset = Subset(train_dataset, list(range(0, len(train_dataset), 5)))
     val_dataset = Subset(val_dataset, list(range(0, len(val_dataset), 8)))
 
-    train_loader = DataLoader(train_dataset, batch_size=config.batch_size, shuffle=True, num_workers=4, pin_memory=True)
-    val_loader = DataLoader(val_dataset, batch_size=config.batch_size, shuffle=False, num_workers=4, pin_memory=True)
+    train_loader = DataLoader(train_dataset, batch_size=config["batch_size"], shuffle=True, num_workers=4, pin_memory=True)
+    val_loader = DataLoader(val_dataset, batch_size=config["batch_size"], shuffle=False, num_workers=4, pin_memory=True)
 
     # Model and optimizer
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     pose_net = PoseNet().to(device)
-    optimizer = optim.Adam(pose_net.parameters(), lr=config.learning_rate)
+    optimizer = optim.Adam(pose_net.parameters(), lr=config["learning_rate"])
 
     train_losses = []
     val_losses = []
 
-    for epoch in range(config.epochs):
+    for epoch in range(config["epochs"]):
         pose_net.train()
         total_train_loss = 0.0
 
@@ -96,18 +95,18 @@ def main():
         val_losses.append(avg_val_loss)
 
         # wandb logging
-        wandb.log({
-            "epoch": epoch + 1,
-            "train_loss": avg_train_loss,
-            "val_loss": avg_val_loss
-        })
+        # wandb.log({
+        #     "epoch": epoch + 1,
+        #     "train_loss": avg_train_loss,
+        #     "val_loss": avg_val_loss
+        # })
 
-        print(f"Epoch {epoch+1}/{config.epochs} - Train Loss: {avg_train_loss:.6f} - Val Loss: {avg_val_loss:.6f}")
+        print(f"Epoch {epoch+1}/{config["epochs"]} - Train Loss: {avg_train_loss:.6f} - Val Loss: {avg_val_loss:.6f}")
 
     # Plot + save figure + upload to wandb
     plt.figure()
-    plt.plot(range(1, config.epochs + 1), train_losses, label="Train Loss")
-    plt.plot(range(1, config.epochs + 1), val_losses, label="Validation Loss")
+    plt.plot(range(1, config["epochs"] + 1), train_losses, label="Train Loss")
+    plt.plot(range(1, config["epochs"] + 1), val_losses, label="Validation Loss")
     plt.xlabel("Epoch")
     plt.ylabel("Loss")
     plt.title("Training and Validation Loss over Epochs")
@@ -116,12 +115,12 @@ def main():
     plot_path = "training_validation_loss.png"
     plt.savefig(plot_path)
     plt.show()
-    wandb.log({"loss_plot": wandb.Image(plot_path)})
+    # wandb.log({"loss_plot": wandb.Image(plot_path)})
 
     print("Training completed.")
-    wandb.finish()
+    # wandb.finish()
     return pose_net
 
 if __name__ == "__main__":
     model = main()
-    torch.save(pose_net.state_dict(), "pose_net_progress.pth")
+    # torch.save(pose_net.state_dict(), "pose_net_progress.pth")

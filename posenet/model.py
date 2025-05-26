@@ -11,11 +11,12 @@ class PoseNet(nn.Module):
         self.cnn = nn.Sequential(*list(vgg.features.children()))
         
         self.feature_dim = 512 * 7 * 7  # assuming input image is 224x224
+        self.hidden_dim= 128
         
-        self.lstm = nn.LSTM(input_size=self.feature_dim, hidden_size=250, num_layers=2, batch_first=True)
+        self.lstm = nn.LSTM(input_size=self.feature_dim, hidden_size=self.hidden_dim, num_layers=2, batch_first=True, dropout=0.3)
 
         # Step 4: Regress 6D pose (translation + rotation)
-        self.pose_fc = nn.Linear(250, 7)
+        self.pose_fc = nn.Linear(self.hidden_dim, 7)
 
     def forward(self, x):
         batch_size, seq_len, C, H, W = x.shape
@@ -41,8 +42,8 @@ class PoseNet(nn.Module):
         return loss_t + lambda_q * loss_q
     
     def quaternion_loss(self, q_pred, q_gt):
-        q_pred = F.normalize(q_pred, p=2, dim=1)
-        q_gt = F.normalize(q_gt, p=2, dim=1)
+        q_pred = F.normalize(q_pred, p=2, dim=2)
+        q_gt = F.normalize(q_gt, p=2, dim=2)
         
         dot = torch.sum(q_pred * q_gt, dim=1)
         dot = torch.clamp(dot, -1.0, 1.0)
