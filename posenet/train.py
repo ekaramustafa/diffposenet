@@ -92,6 +92,8 @@ def main():
                 rotations = rotations.to(device, non_blocking=True)
 
                 t_pred, q_pred = pose_net(images)
+                print(t_pred.shape)
+                print(q_pred.shape)
                 loss = pose_net.pose_loss(t_pred, q_pred, translations, rotations)
                 total_val_loss += loss.item()
 
