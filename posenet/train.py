@@ -105,7 +105,7 @@ def main():
         #     "val_loss": avg_val_loss
         # })
 
-        print(f"Epoch {epoch+1}/{config["epochs"]} - Train Loss: {avg_train_loss:.6f} - Val Loss: {avg_val_loss:.6f}")
+        print(f"Epoch {epoch+1}/{config['epochs']} - Train Loss: {avg_train_loss:.6f} - Val Loss: {avg_val_loss:.6f}")
 
     # Plot + save figure + upload to wandb
     plt.figure()
