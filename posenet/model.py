@@ -11,7 +11,7 @@ class PoseNet(nn.Module):
         self.dino = AutoModel.from_pretrained("facebook/dinov2-base")  # output: [B, 197, 768]
         self.feature_dim = 768  # CLS token dimension
 
-        self.lstm = nn.LSTM(input_size=self.feature_dim, hidden_size=250, num_layers=2, batch_first=True)
+        self.lstm = nn.LSTM(input_size=self.feature_dim, hidden_size=250, num_layers=2, batch_first=True, dropout=0.3)
 
         # Step 4: Regress 6D pose (translation + rotation)
         self.pose_fc = nn.Linear(250, 7)
