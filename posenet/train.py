@@ -62,8 +62,8 @@ def main():
     print(translations.shape)
     print(rotations.shape)
 
-    return
-
+    
+"""
     for epoch in range(config["epochs"]):
         pose_net.train()
         total_train_loss = 0.0
@@ -126,6 +126,7 @@ def main():
     print("Training completed.")
     # wandb.finish()
     return pose_net
+"""
 
 if __name__ == "__main__":
     model = main()
