@@ -7,14 +7,13 @@ class PoseNet(nn.Module):
     def __init__(self):
         super(PoseNet, self).__init__()
 
-        # Load DINOv2
         self.dino = AutoModel.from_pretrained("facebook/dinov2-base")  # output: [B, 197, 768]
-        self.feature_dim = 768  # CLS token dimension
+        self.feature_dim = 768 
+        self.hidden_dim = 128
 
-        self.lstm = nn.LSTM(input_size=self.feature_dim, hidden_size=250, num_layers=2, batch_first=True, dropout=0.3)
+        self.lstm = nn.LSTM(input_size=self.feature_dim, hidden_size=self.hidden_dim, num_layers=2, batch_first=True, dropout=0.3)
 
-        # Step 4: Regress 6D pose (translation + rotation)
-        self.pose_fc = nn.Linear(250, 7)
+        self.pose_fc = nn.Linear(self.hidden_dim, 7)
 
     def forward(self, x):
         batch_size, seq_len, C, H, W = x.shape
@@ -22,8 +21,8 @@ class PoseNet(nn.Module):
 
         for t in range(seq_len):
             frame = x[:, t]  # shape: [B, 3, 224, 224]
-            with torch.no_grad():  # freeze DINO if needed
-                outputs = self.dino(frame)  # returns a ModelOutput
+            with torch.no_grad(): 
+                outputs = self.dino(frame) 
                 cls_token = outputs.last_hidden_state[:, 0, :]  # [CLS] token: shape [B, 768]
 
             dino_feats.append(cls_token)
