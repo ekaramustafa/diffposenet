@@ -118,11 +118,11 @@ def main():
         avg_val_loss = total_val_loss / len(val_loader)
         val_losses.append(avg_val_loss)
 
-        wandb.log({
-            "epoch": epoch + 1,
-            "train_loss": avg_train_loss,
-            "val_loss": avg_val_loss
-        })
+        # wandb.log({
+        #     "epoch": epoch + 1,
+        #     "train_loss": avg_train_loss,
+        #     "val_loss": avg_val_loss
+        # })
 
         print(f"Epoch {epoch+1}/{config['epochs']} - Train Loss: {avg_train_loss:.6f} - Val Loss: {avg_val_loss:.6f}")
 
@@ -138,7 +138,7 @@ def main():
     plot_path = "training_validation_loss.png"
     plt.savefig(plot_path)
     plt.show()
-    wandb.log({"loss_plot": wandb.Image(plot_path)})
+    # wandb.log({"loss_plot": wandb.Image(plot_path)})
 
     print("Training completed.")
     # wandb.finish()
