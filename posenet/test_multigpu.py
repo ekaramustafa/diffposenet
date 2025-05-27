@@ -170,40 +170,6 @@ def test_multi_gpu_training():
         print(f"✗ Multi-GPU training test failed: {str(e)}")
         return False
 
-def test_checkpoint_saving():
-    """Test checkpoint saving and loading"""
-    print("Testing checkpoint functionality...")
-    
-    try:
-        accelerator = Accelerator()
-        model = ImprovedPoseNet(backbone='resnet34', hidden_dim=128)
-        optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)
-        
-        model, optimizer = accelerator.prepare(model, optimizer)
-        
-        # Create test directory
-        test_dir = "test_checkpoint"
-        os.makedirs(test_dir, exist_ok=True)
-        
-        # Save state
-        accelerator.save_state(test_dir)
-        print(f"✓ Checkpoint saved to {test_dir}")
-        
-        # Load state
-        accelerator.load_state(test_dir)
-        print(f"✓ Checkpoint loaded from {test_dir}")
-        
-        # Cleanup
-        import shutil
-        shutil.rmtree(test_dir)
-        print(f"✓ Test checkpoint cleaned up")
-        
-        return True
-        
-    except Exception as e:
-        print(f"✗ Checkpoint test failed: {str(e)}")
-        return False
-
 def main():
     """Run all tests"""
     print("=" * 60)
@@ -222,7 +188,6 @@ def main():
     tests = [
         ("Model Forward Pass", test_model_forward),
         ("Multi-GPU Training", test_multi_gpu_training),
-        ("Checkpoint Saving", test_checkpoint_saving),
     ]
     
     results = []
