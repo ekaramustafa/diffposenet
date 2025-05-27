@@ -8,7 +8,10 @@ class PoseNet(nn.Module):
         super(PoseNet, self).__init__()
         
         vgg = models.vgg16(pretrained=True)
+        for param in vgg.features.parameters():
+            param.requires_grad = False
         self.cnn = nn.Sequential(*list(vgg.features.children()))
+        
         
         self.feature_dim = 512 * 7 * 7  # assuming input image is 224x224
         self.hidden_dim= 128
