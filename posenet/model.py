@@ -8,30 +8,37 @@ class PoseNet(nn.Module):
         super(PoseNet, self).__init__()
         
         vgg = models.vgg16(pretrained=True)
+        for param in vgg.features.parameters():
+            param.requires_grad = False
         self.cnn = nn.Sequential(*list(vgg.features.children()))
         
-        self.feature_dim = 512 * 7 * 7  # assuming input image is 224x224
         
-        self.lstm = nn.LSTM(input_size=self.feature_dim, hidden_size=250, num_layers=2, batch_first=True)
+        self.feature_dim = 512 * 7 * 7  # assuming input image is 224x224
+        self.hidden_dim= 128
+        
+        self.lstm = nn.GRU(input_size=self.feature_dim, hidden_size=self.hidden_dim, num_layers=2, batch_first=True, dropout=0.3)
 
         # Step 4: Regress 6D pose (translation + rotation)
-        self.pose_fc = nn.Linear(250, 7)
+        self.pose_fc = nn.Linear(self.hidden_dim, 7)
 
     def forward(self, x):
-        batch_size, seq_len, C, H, W = x.shape
+        batch_size, seq_len, C, H, W = x.shape  # [B, 6, 3, H, W]
         cnn_feats = []
 
         for t in range(seq_len):
-            feat = self.cnn(x[:, t])       # shape: [B, 512, 7, 7]
-            feat = feat.view(batch_size, -1)  # flatten
+            feat = self.cnn(x[:, t])           # [B, 512, 7, 7]
+            feat = feat.view(batch_size, -1)   # [B, feat_dim]
             cnn_feats.append(feat)
-        
-        feats = torch.stack(cnn_feats, dim=1)  # shape: [B, seq_len, feat_dim]
-        lstm_out, _ = self.lstm(feats)         # shape: [B, seq_len, 250]
-        pose = self.pose_fc(lstm_out[:, -1])   # use last output for pose
-        t = pose[:, :3]
-        q = pose[:, 3:]
-        q = q / q.norm(dim=1, keepdim=True)     # normalize quaternion
+
+        feats = torch.stack(cnn_feats, dim=1)  # [B, 6, feat_dim]
+        lstm_out, _ = self.lstm(feats)         # [B, 6, hidden_dim]
+
+        lstm_out = lstm_out[:, 1:]             # [B, 5, hidden_dim] – for relative poses
+        pose = self.pose_fc(lstm_out)          # [B, 5, 7]
+
+        t = pose[:, :, :3]                     # [B, 5, 3]
+        q = pose[:, :, 3:]                     # [B, 5, 4]
+        q = q / q.norm(dim=2, keepdim=True)    # normalize quaternion
 
         return t, q
 
@@ -41,10 +48,10 @@ class PoseNet(nn.Module):
         return loss_t + lambda_q * loss_q
     
     def quaternion_loss(self, q_pred, q_gt):
-        q_pred = F.normalize(q_pred, p=2, dim=1)
-        q_gt = F.normalize(q_gt, p=2, dim=1)
+        q_pred = F.normalize(q_pred, p=2, dim=2)
+        q_gt = F.normalize(q_gt, p=2, dim=2)
         
-        dot = torch.sum(q_pred * q_gt, dim=1)
+        dot = torch.sum(q_pred * q_gt, dim=2)
         dot = torch.clamp(dot, -1.0, 1.0)
         
         loss = 1.0 - torch.abs(dot)
