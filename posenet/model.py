@@ -16,7 +16,7 @@ class PoseNet(nn.Module):
         self.feature_dim = 512 * 7 * 7  # assuming input image is 224x224
         self.hidden_dim= 128
         
-        self.lstm = nn.LSTM(input_size=self.feature_dim, hidden_size=self.hidden_dim, num_layers=2, batch_first=True, dropout=0.3)
+        self.lstm = nn.GRU(input_size=self.feature_dim, hidden_size=self.hidden_dim, num_layers=2, batch_first=True, dropout=0.3)
 
         # Step 4: Regress 6D pose (translation + rotation)
         self.pose_fc = nn.Linear(self.hidden_dim, 7)

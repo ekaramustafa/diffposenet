@@ -6,10 +6,11 @@ from torchvision import transforms
 from PIL import Image
 
 class TartanAirDataset(Dataset):
-    def __init__(self, root_dir, seq_len=2, transform=None, size=None):
+    def __init__(self, root_dir, seq_len=2, transform=None, size=None, skip=1):
         self.root_dir = root_dir
         self.transform = transform
         self.seq_len = seq_len
+        self.skip = skip  # Number of frames to skip between consecutive images
 
         if transform is None:
             self.transform = transforms.Compose([
@@ -45,7 +46,7 @@ class TartanAirDataset(Dataset):
         self.poses = self._read_ground_truth(self.pose_files)
 
     def __len__(self):
-        return len(self.image_files) - self.seq_len
+        return len(self.image_files) - (self.seq_len - 1) * self.skip
 
     def __getitem__(self, idx):
         # Load image sequence
