@@ -232,13 +232,13 @@ def main():
         if avg_val_loss < best_val_loss:
             best_val_loss = avg_val_loss
             if accelerator.is_main_process:
-                accelerator.save_state(f"ebu/checkpoints/best_model_epoch_{epoch+1}")
+                # accelerator.save_state(f"ebu/checkpoints/best_model_epoch_{epoch+1}")
                 logger.info(f"New best model saved at epoch {epoch+1}")
         
         # Regular checkpoint saving
         if (epoch + 1) % config["save_every"] == 0:
             if accelerator.is_main_process:
-                accelerator.save_state(f"ebu/checkpoints/checkpoint_epoch_{epoch+1}")
+                # accelerator.save_state(f"ebu/checkpoints/checkpoint_epoch_{epoch+1}")
                 logger.info(f"Checkpoint saved at epoch {epoch+1}")
     
     # Final model saving
@@ -286,6 +286,6 @@ def main():
 
 if __name__ == "__main__":
     # Create checkpoints directory
-    os.makedirs("ebu/checkpoints", exist_ok=True)
+    # os.makedirs("ebu/checkpoints", exist_ok=True)
     
     model = main() 
