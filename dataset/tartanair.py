@@ -10,7 +10,7 @@ class TartanAirDataset(Dataset):
         self.root_dir = root_dir
         self.transform = transform
         self.seq_len = seq_len
-        self.skip = skip  # Number of frames to skip between consecutive images
+        self.skip = skip
 
         if transform is None:
             self.transform = transforms.Compose([
@@ -49,20 +49,21 @@ class TartanAirDataset(Dataset):
         return len(self.image_files) - (self.seq_len - 1) * self.skip
 
     def __getitem__(self, idx):
-        # Load image sequence
         image_seq = []
-        for i in range(idx, idx + self.seq_len):
-            img = Image.open(self.image_files[i])
+        for i in range(self.seq_len):
+            img_idx = idx + i * self.skip
+            img = Image.open(self.image_files[img_idx])
             if self.transform:
                 img = self.transform(img)
             image_seq.append(img)
         image_seq = torch.stack(image_seq, dim=0)
 
-        # Load pose pairs for relative pose
         poses = []
-        for i in range(idx, idx + self.seq_len - 1):
-            pose1 = self.poses[i]
-            pose2 = self.poses[i + 1]
+        for i in range(self.seq_len - 1):
+            pose1_idx = idx + i * self.skip
+            pose2_idx = idx + (i + 1) * self.skip
+            pose1 = self.poses[pose1_idx]
+            pose2 = self.poses[pose2_idx]
             rel_pose = self._compute_relative_pose(pose1, pose2)
             poses.append(rel_pose)
 
