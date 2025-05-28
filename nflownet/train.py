@@ -121,23 +121,27 @@ def train(num_epochs, batch_size, train_root_dir, test_root_dir):
             if accelerator.is_local_main_process:
                 wandb.log({"Loss": loss.item()})
 
-        avg_train_loss = running_train_loss / len(train_loader)
-        train_losses.append(avg_train_loss)
-        print(f" Average Train Loss: {avg_train_loss:.6f}")
+        if accelerator.is_local_main_process:
+            avg_train_loss = running_train_loss / len(train_loader)
+            train_losses.append(avg_train_loss)
+            print(f" Average Train Loss: {avg_train_loss:.6f}")
 
         # ------------------- Validation -------------------
         accelerator.wait_for_everyone()
-        print("Waited")
         model.eval()
         running_test_loss = 0.0
-        pbar = tqdm(test_loader, desc=f"Epoch [{epoch + 1}/{num_epochs}]", disable=not accelerator.is_local_main_process)
+        # pbar = tqdm(test_loader, desc=f"Epoch [{epoch + 1}/{num_epochs}]", disable=not accelerator.is_local_main_process)
+        pbar = tqdm(test_loader, desc=f"Epoch [{epoch + 1}/{num_epochs}]")
         with torch.no_grad():
-            for paired_batch, normal_flow_batch in pbar:
+            #for paired_batch, normal_flow_batch in pbar:
+            for i, (paired_batch, normal_flow_batch) in enumerate(pbar):
                 outputs = model(paired_batch)
                 loss = criterion(outputs, normal_flow_batch)
                 if torch.isnan(loss) or loss.item() > 1e5:
-                    print(f"⚠️  Skipping batch in TRAIN: loss={loss.item()}")
-                    continue
+                    #print(f"⚠️  Skipping batch in TRAIN: loss={loss.item()}")
+                    print(f"⚠️ Batch {i} in test_loader caused loss={loss.item()}")
+                    
+                    continue 
                 running_test_loss += loss.item()
                 pbar.set_postfix({'Batch Loss': loss.item()})
             
