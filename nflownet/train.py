@@ -63,15 +63,6 @@ def train(num_epochs, batch_size, train_root_dir, test_root_dir):
     train_dataset = nflownet_dataloader(root_dir_path=train_root_dir)
     test_dataset = nflownet_dataloader(root_dir_path=test_root_dir)
     torch.cuda.empty_cache()
-
-    # Take random 1/3 subset of test
-    # indices = torch.randperm(len(test_dataset)).tolist()[:len(test_dataset) // 3]
-    # test_dataset = Subset(test_dataset, indices)
-
-    # Take 1/100 subset of train
-    # indices = torch.randperm(len(train_dataset)).tolist()[:len(test_dataset) // 100]
-    # train_dataset = Subset(train_dataset, indices)
-
     
     if accelerator.is_local_main_process:
         print("\n============= Dataloaders =============")
@@ -84,7 +75,7 @@ def train(num_epochs, batch_size, train_root_dir, test_root_dir):
 
     if accelerator.is_local_main_process:
         print("\n============= Initializing the Model =============") 
-    model = NFlowNet(base_channels=37)
+    model = NFlowNet(base_channels=32)
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
     criterion = nn.MSELoss()
 
@@ -194,7 +185,7 @@ def train(num_epochs, batch_size, train_root_dir, test_root_dir):
 
 if __name__ == "__main__":
     num_epochs = 400
-    batch_size = 8
+    batch_size = 32
     train_root_dir = "/kuacc/users/imelanlioglu21/comp447_project/tartanair_dataset/train_data/"
     test_root_dir = "/kuacc/users/imelanlioglu21/comp447_project/tartanair_dataset/test_data/"
     train_losses, test_losses = train(num_epochs, batch_size, train_root_dir, test_root_dir)
