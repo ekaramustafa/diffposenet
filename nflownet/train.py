@@ -124,55 +124,55 @@ def train(num_epochs, batch_size, train_root_dir, test_root_dir):
         print(f" Average Train Loss: {avg_train_loss:.6f}")
 
         # ------------------- Validation -------------------
-        # accelerator.wait_for_everyone()
-        # model.eval()
-        # running_test_loss = 0.0
-        # pbar = tqdm(test_loader, desc=f"Epoch [{epoch + 1}/{num_epochs}]", disable=not accelerator.is_local_main_process)
-        # with torch.no_grad():
-        #     for paired_batch, normal_flow_batch in pbar:
-        #         outputs = model(paired_batch)
-        #         loss = criterion(outputs, normal_flow_batch)
-        #         if torch.isnan(loss) or loss.item() > 1e5:
-        #             print(f"⚠️  Skipping batch in TRAIN: loss={loss.item()}")
-        #             continue
-        #         running_test_loss += loss.item()
-        #         pbar.set_postfix({'Batch Loss': loss.item()})
+        accelerator.wait_for_everyone()
+        model.eval()
+        running_test_loss = 0.0
+        pbar = tqdm(test_loader, desc=f"Epoch [{epoch + 1}/{num_epochs}]", disable=not accelerator.is_local_main_process)
+        with torch.no_grad():
+            for paired_batch, normal_flow_batch in pbar:
+                outputs = model(paired_batch)
+                loss = criterion(outputs, normal_flow_batch)
+                if torch.isnan(loss) or loss.item() > 1e5:
+                    print(f"⚠️  Skipping batch in TRAIN: loss={loss.item()}")
+                    continue
+                running_test_loss += loss.item()
+                pbar.set_postfix({'Batch Loss': loss.item()})
             
 
-        # avg_test_loss = running_test_loss / len(test_loader)
-        # test_losses.append(avg_test_loss)
-        # print(f"Epoch [{epoch + 1}/{num_epochs}], Validation Loss: {avg_test_loss:.6f}")
+        avg_test_loss = running_test_loss / len(test_loader)
+        test_losses.append(avg_test_loss)
+        print(f"Epoch [{epoch + 1}/{num_epochs}], Validation Loss: {avg_test_loss:.6f}")
 
 
         # ----- Log Sample Predictions to wandb -----
-        # if accelerator.is_local_main_process:
-        #     images_to_log = {}
-        #     max_samples = 8
-        #     with torch.no_grad():
-        #         for paired_batch, normal_flow_batch in test_loader_log:
-        #             pred_flow = model(paired_batch)
-        #             pred_flow = flow_to_image(pred_flow)
-        #             gt_flow = flow_to_image(normal_flow_batch)
+        if accelerator.is_local_main_process:
+            images_to_log = {}
+            max_samples = 8
+            with torch.no_grad():
+                for paired_batch, normal_flow_batch in test_loader_log:
+                    pred_flow = model(paired_batch)
+                    pred_flow = flow_to_image(pred_flow)
+                    gt_flow = flow_to_image(normal_flow_batch)
 
-        #             batch_size = paired_batch.size(0)
-        #             for j in range(min(batch_size, max_samples)):
-        #                 img1 = TF.to_pil_image(paired_batch[j][:3].cpu())
-        #                 img2 = TF.to_pil_image(paired_batch[j][3:].cpu())
-        #                 flow_pred = TF.to_pil_image(pred_flow[j].cpu())
-        #                 flow_gt = TF.to_pil_image(gt_flow[j].cpu())
+                    batch_size = paired_batch.size(0)
+                    for j in range(min(batch_size, max_samples)):
+                        img1 = TF.to_pil_image(paired_batch[j][:3].cpu())
+                        img2 = TF.to_pil_image(paired_batch[j][3:].cpu())
+                        flow_pred = TF.to_pil_image(pred_flow[j].cpu())
+                        flow_gt = TF.to_pil_image(gt_flow[j].cpu())
                         
-        #                 images_to_log[f"Sample {j+1} - Image 1"] = wandb.Image(img1, caption="Input Image 1")
-        #                 images_to_log[f"Sample {j+1} - Image 2"] = wandb.Image(img2, caption="Input Image 2")
-        #                 images_to_log[f"Sample {j+1} - Predicted Normal Flow"] = wandb.Image(flow_pred, caption="Predicted Normal Flow")
-        #                 images_to_log[f"Sample {j+1} - Ground Truth Normal Flow"] = wandb.Image(flow_gt, caption="Ground Truth Normal Flow")
-        #             break
+                        images_to_log[f"Sample {j+1} - Image 1"] = wandb.Image(img1, caption="Input Image 1")
+                        images_to_log[f"Sample {j+1} - Image 2"] = wandb.Image(img2, caption="Input Image 2")
+                        images_to_log[f"Sample {j+1} - Predicted Normal Flow"] = wandb.Image(flow_pred, caption="Predicted Normal Flow")
+                        images_to_log[f"Sample {j+1} - Ground Truth Normal Flow"] = wandb.Image(flow_gt, caption="Ground Truth Normal Flow")
+                    break
                        
-        #     wandb.log({
-        #         "epoch": epoch + 1,
-        #         "train_loss": avg_train_loss,
-        #         "validation_loss": avg_test_loss,
-        #         **images_to_log
-        #     })
+            wandb.log({
+                "epoch": epoch + 1,
+                "train_loss": avg_train_loss,
+                "validation_loss": avg_test_loss,
+                **images_to_log
+            })
         if accelerator.is_local_main_process:
             if epoch % 20 == 0:
                 accelerator.wait_for_everyone()
