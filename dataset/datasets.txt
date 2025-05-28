@@ -1,3 +1,3 @@
-hospital/Easy/flow_flow.zip 39.195514467
-hospital/Easy/flow_mask.zip 0.048007754
-hospital/Easy/image_left.zip 7.192729599
+soulcity/Easy/flow_flow.zip 29.165390391
+soulcity/Easy/flow_mask.zip 0.068599353
+soulcity/Easy/image_left.zip 6.885228694
