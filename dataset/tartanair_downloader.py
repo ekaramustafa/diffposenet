@@ -14,8 +14,8 @@ class TartanAirDownloader(object):
         
         self._isloaded = False
         self._levellist = ['Easy']
-        self._typelist = ['flow']
-        self._cameralist = ['left', 'mask']
+        self._typelist = ['image', 'flow']
+        self._cameralist = ['left', 'flow, 'mask']
         self._dataset_info_path = "dataset/datasets.txt"
         if dataset_info_path is not None:
             self._dataset_info_path = dataset_info_path
@@ -24,7 +24,7 @@ class TartanAirDownloader(object):
         self.bucket_name = bucket_name
 
     
-    def load(self, levellist=['Easy'], typelist=['flow'], cameralist=['left', 'mask']):
+    def load(self, levellist=['Easy'], typelist=['image', 'flow'], cameralist=['left', 'flow', 'mask']):
         if levellist is None:
             levellist = self._levellist
         if typelist is None:
@@ -63,7 +63,7 @@ class TartanAirDownloader(object):
         self._isloaded = True
 
     
-    def download(self, destination_path : str, environments : List[str] = ["office2"]):
+    def download(self, destination_path : str, environments : List[str] = ["abandonedfactory"]):
         """
         Downloads files from the specified environment and saves them to the given local path.
 
@@ -126,7 +126,6 @@ class TartanAirDownloader(object):
     
 if __name__ == "__main__":
     downloader = TartanAirDownloader(dataset_info_path="/scratch/users/imelanlioglu21/comp447_project/diffposenet/dataset/datasets.txt")
-    #downloader = TartanAirDownloader(dataset_info_path="/content/diffposenet/dataset/datasets.txt")
-    downloader.load(levellist=['Easy'], typelist=['flow'], cameralist=['left', 'mask'])
-    bl, lst = downloader.download("/scratch/users/imelanlioglu21/comp447_project/tartanair_dataset", ["office2"])
+    downloader.load(levellist=['Easy'], typelist=['image', 'flow'], cameralist=['left', 'flow', 'mask'])
+    bl, lst = downloader.download("/scratch/users/imelanlioglu21/comp447_project/tartanair_dataset", ["abandonedfactory"])
     print(lst)
