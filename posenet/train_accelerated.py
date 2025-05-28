@@ -157,7 +157,7 @@ def main():
             with accelerator.accumulate(pose_net):
                 # Forward pass
                 t_pred, q_pred = pose_net(images)
-                loss = pose_net.pose_loss(t_pred, q_pred, translations, rotations)
+                loss = pose_net.module.pose_loss(t_pred, q_pred, translations, rotations)
                 
                 # Backward pass
                 accelerator.backward(loss)
@@ -199,7 +199,7 @@ def main():
         with torch.no_grad():
             for images, translations, rotations in progress_bar:
                 t_pred, q_pred = pose_net(images)
-                loss = pose_net.pose_loss(t_pred, q_pred, translations, rotations)
+                loss = pose_net.module.pose_loss(t_pred, q_pred, translations, rotations)
                 
                 # Gather loss from all processes
                 loss_gathered = accelerator.gather(loss.detach())
