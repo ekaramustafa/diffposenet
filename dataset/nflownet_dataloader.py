@@ -37,13 +37,15 @@ class nflownet_dataloader(Dataset):
                                 if os.path.exists(image_dir) and os.path.exists(flow_dir):
                                     image_files = sorted(glob.glob(os.path.join(image_dir, '*.png')))
                                     flow_files = sorted(glob.glob(os.path.join(flow_dir, '*_flow.npy')))
+                                    flow_mask_files = sorted(glob.glob(os.path.join(flow_dir, '*_mask.npy')))
                                     
-                                    if len(image_files) == len(flow_files) + 1:
+                                    if (len(image_files) == len(flow_files) + 1) and (len(flow_files) == len(flow_mask_files)):
                                         for i in range(len(flow_files)):
                                             img1 = image_files[i]
                                             img2 = image_files[i+1]
                                             flow = flow_files[i]
-                                            self.data_paths.append((img1, img2, flow))
+                                            flow_mask = flow_mask_files[i]
+                                            self.data_paths.append((img1, img2, flow, flow_mask))
                                     else:
                                         warnings.warn(f"Length mismatch in {traj_entry.path}")
                                     
@@ -52,15 +54,27 @@ class nflownet_dataloader(Dataset):
         return len(self.data_paths)
 
     def __getitem__(self, idx):
-        img1_path, img2_path, flow_path = self.data_paths[idx]
+        img1_path, img2_path, flow_path, flow_mask_path = self.data_paths[idx]
 
         img1 = self._read_image(img1_path)
         img2 = self._read_image(img2_path)
         flow = self._read_opt_flow(flow_path)
+        flow_mask = self._read_opt_mask(flow_mask_path)
         paired_images = torch.cat([img1, img2], dim=0)  # shape (6, H, W)
         normal_flow = compute_normal_flow(flow, paired_images)
+
+
+
+
+        
         return paired_images, flow
 
+    def _read_opt_mask(self, opt_mask_path):
+        opt_mask = np.load(opt_mask_path)
+        opt_mask = torch.from_numpy(opt_mask).float()
+        opt_mask = self._crop_to_divisible_by_16(opt_mask)
+        return opt_mask
+        
     def _read_opt_flow(self, opt_flow_path):
         opt_flow = np.load(opt_flow_path)
         opt_flow = torch.from_numpy(opt_flow).permute(2, 0, 1).float()
