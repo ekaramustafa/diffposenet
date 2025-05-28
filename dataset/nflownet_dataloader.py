@@ -64,12 +64,13 @@ class nflownet_dataloader(Dataset):
         weights = weights.unsqueeze(0)
         masked_flow = flow * weights
         paired_images = torch.cat([img1, img2], dim=0)  # shape (6, H, W)
-        normal_flow = compute_normal_flow(masked_flow, paired_images)        
+        with torch.no_grad():
+            normal_flow = compute_normal_flow(masked_flow, paired_images)        
         return paired_images, normal_flow
 
     def _read_opt_mask(self, opt_mask_path):
         opt_mask = np.load(opt_mask_path)
-        opt_mask = torch.from_numpy(opt_mask).unsqueeze(0).float()
+        opt_mask = torch.from_numpy(opt_mask).float()
         opt_mask = self._crop_to_divisible_by_16(opt_mask)
         return opt_mask
         
@@ -86,7 +87,15 @@ class nflownet_dataloader(Dataset):
         return image
 
     def _crop_to_divisible_by_16(self, img: torch.Tensor):
-        C, H, W = img.shape
-        new_H = H - (H % 16)
-        new_W = W - (W % 16)
-        return img[:, :new_H, :new_W]
+        if img.ndim == 2:
+            H, W = img.shape
+            new_H = H - (H % 16)
+            new_W = W - (W % 16)
+            return img[:new_H, :new_W]
+        elif img.ndim == 3:
+            C, H, W = img.shape
+            new_H = H - (H % 16)
+            new_W = W - (W % 16)
+            return img[:, :new_H, :new_W]
+        else:
+            raise ValueError(f"Unexpected shape in _crop_to_divisible_by_16: {img.shape}")
