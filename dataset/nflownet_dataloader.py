@@ -69,7 +69,7 @@ class nflownet_dataloader(Dataset):
 
     def _read_opt_mask(self, opt_mask_path):
         opt_mask = np.load(opt_mask_path)
-        opt_mask = torch.from_numpy(opt_mask).float()
+        opt_mask = torch.from_numpy(opt_mask).unsqueeze(0).float()
         opt_mask = self._crop_to_divisible_by_16(opt_mask)
         return opt_mask
         
