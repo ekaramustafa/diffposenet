@@ -105,8 +105,8 @@ def main():
         )
         
         # Save config
-        os.makedirs("configs", exist_ok=True)
-        save_config(config, f"configs/config_{timestamp}.json")
+        os.makedirs("ebu/improved_posenet/configs", exist_ok=True)
+        save_config(config, f"ebu/improved_posenet/configs/config_{timestamp}.json")
     
     # Set random seed for reproducibility across all processes
     accelerate_set_seed(42)
