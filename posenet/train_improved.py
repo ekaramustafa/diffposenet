@@ -63,7 +63,7 @@ def main():
         "use_attention": True,
         
         # Training parameters
-        "learning_rate": 1e-5,
+        "learning_rate": 1e-4,
         "batch_size": 6,  # Per GPU batch size (reduced for ResNet50)
         "epochs": 50,
         "seq_len": 6,
@@ -89,7 +89,7 @@ def main():
         "eval_every": 1,
         
         # Data parameters
-        "train_subset_ratio": 0.5,  # Use 20% of training data for faster iteration
+        "train_subset_ratio": 0.5,  # Use 50% of training data for faster iteration
         "val_subset_ratio": 0.5,   # Use 50% of validation data
     }
     
@@ -236,10 +236,25 @@ def main():
                     lambda_smooth=config["lambda_smooth"]
                 )
                 
-                # Check for NaN loss
-                if torch.isnan(loss):
-                    logger.warning(f"NaN loss detected at epoch {epoch+1}, batch {batch_idx}. Skipping batch.")
-                    continue
+                # Check for NaN or infinite loss and terminate if found
+                if torch.isnan(loss) or torch.isinf(loss):
+                    logger.error(f"Invalid loss detected at epoch {epoch+1}, batch {batch_idx}")
+                    logger.error(f"Loss value: {loss.item()}")
+                    logger.error(f"Loss components: {loss_dict}")
+                    logger.error("Training terminated due to invalid loss. Check your data, model, or hyperparameters.")
+                    
+                    if accelerator.is_main_process:
+                        wandb.log({
+                            "error/invalid_loss_epoch": epoch + 1,
+                            "error/invalid_loss_batch": batch_idx,
+                            "error/loss_value": loss.item() if not torch.isnan(loss) else "NaN",
+                            "error/loss_components": loss_dict
+                        })
+                        wandb.finish()
+                    
+                    # Wait for all processes and exit
+                    accelerator.wait_for_everyone()
+                    sys.exit(1)
                 
                 # Backward pass
                 accelerator.backward(loss)
@@ -251,10 +266,11 @@ def main():
                 optimizer.step()
                 
                 # Learning rate scheduling
-                if global_step < warmup_steps:
-                    warmup_scheduler.step()
-                else:
-                    scheduler.step()
+                # Temporarily disabled for testing - uncomment to re-enable
+                # if global_step < warmup_steps:
+                #     warmup_scheduler.step()
+                # else:
+                #     scheduler.step()
                 
                 optimizer.zero_grad()
                 global_step += 1
