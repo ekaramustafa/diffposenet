@@ -63,6 +63,15 @@ def train(num_epochs, batch_size, train_root_dir, test_root_dir):
     train_dataset = nflownet_dataloader(root_dir_path=train_root_dir)
     test_dataset = nflownet_dataloader(root_dir_path=test_root_dir)
     torch.cuda.empty_cache()
+
+    # Take random 1/3 subset of test
+    # indices = torch.randperm(len(test_dataset)).tolist()[:len(test_dataset) // 3]
+    # test_dataset = Subset(test_dataset, indices)
+
+    # Take 1/100 subset of train
+    # indices = torch.randperm(len(train_dataset)).tolist()[:len(test_dataset) // 100]
+    # train_dataset = Subset(train_dataset, indices)
+
     
     if accelerator.is_local_main_process:
         print("\n============= Dataloaders =============")
@@ -70,12 +79,13 @@ def train(num_epochs, batch_size, train_root_dir, test_root_dir):
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=20, pin_memory=False, persistent_workers=False)
     test_loader_log = DataLoader(test_dataset, batch_size=batch_size, shuffle=True, drop_last=True, pin_memory=False, persistent_workers=False)
 
-    print(f"Training set contains {len(train_dataset)} samples.")
-    print(f"Validation set contains {len(test_dataset)} samples.")
+    if accelerator.is_local_main_process:
+        print(f"Training set contains {len(train_dataset)} samples.")
+        print(f"Validation set contains {len(test_dataset)} samples.")
 
     if accelerator.is_local_main_process:
         print("\n============= Initializing the Model =============") 
-    model = NFlowNet(base_channels=32)
+    model = NFlowNet(base_channels=37)
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
     criterion = nn.MSELoss()
 
@@ -116,6 +126,7 @@ def train(num_epochs, batch_size, train_root_dir, test_root_dir):
 
         # ------------------- Validation -------------------
         accelerator.wait_for_everyone()
+        print("Waited")
         model.eval()
         running_test_loss = 0.0
         pbar = tqdm(test_loader, desc=f"Epoch [{epoch + 1}/{num_epochs}]", disable=not accelerator.is_local_main_process)
@@ -164,6 +175,7 @@ def train(num_epochs, batch_size, train_root_dir, test_root_dir):
                 "validation_loss": avg_test_loss,
                 **images_to_log
             })
+
         if accelerator.is_local_main_process:
             if epoch % 20 == 0:
                 accelerator.wait_for_everyone()
