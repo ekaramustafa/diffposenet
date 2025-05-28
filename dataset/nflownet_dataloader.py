@@ -60,14 +60,12 @@ class nflownet_dataloader(Dataset):
         img2 = self._read_image(img2_path)
         flow = self._read_opt_flow(flow_path)
         flow_mask = self._read_opt_mask(flow_mask_path)
+        weights = 1.0 - (flow_mask / 100.0)
+        weights = weights.unsqueeze(0)
+        masked_flow = flow * weights
         paired_images = torch.cat([img1, img2], dim=0)  # shape (6, H, W)
-        normal_flow = compute_normal_flow(flow, paired_images)
-
-
-
-
-        
-        return paired_images, flow
+        normal_flow = compute_normal_flow(masked_flow, paired_images)        
+        return paired_images, normal_flow
 
     def _read_opt_mask(self, opt_mask_path):
         opt_mask = np.load(opt_mask_path)
