@@ -225,7 +225,7 @@ def main():
             with accelerator.accumulate(pose_net):
                 # Forward pass
                 t_pred, q_pred = pose_net(images)
-                loss, loss_dict = pose_net.pose_loss(
+                loss, loss_dict = pose_net.module.pose_loss(
                     t_pred, q_pred, translations, rotations,
                     lambda_q=config["lambda_q"],
                     lambda_smooth=config["lambda_smooth"]
@@ -236,7 +236,7 @@ def main():
                 
                 # Gradient clipping
                 if accelerator.sync_gradients:
-                    accelerator.clip_grad_norm_(pose_net.parameters(), config["gradient_clip_norm"])
+                    accelerator.clip_grad_norm_(pose_net.module.parameters(), config["gradient_clip_norm"])
                 
                 optimizer.step()
                 
@@ -293,7 +293,7 @@ def main():
             with torch.no_grad():
                 for images, translations, rotations in progress_bar:
                     t_pred, q_pred = pose_net(images)
-                    loss, loss_dict = pose_net.pose_loss(
+                    loss, loss_dict = pose_net.module.pose_loss(
                         t_pred, q_pred, translations, rotations,
                         lambda_q=config["lambda_q"],
                         lambda_smooth=config["lambda_smooth"]
@@ -394,7 +394,8 @@ def main():
         plt.subplot(1, 3, 3)
         # Plot learning rate schedule
         lr_history = []
-        temp_optimizer = optim.AdamW(pose_net.parameters(), lr=config["learning_rate"])
+        unwrapped_model = accelerator.unwrap_model(pose_net)
+        temp_optimizer = optim.AdamW(unwrapped_model.parameters(), lr=config["learning_rate"])
         temp_scheduler = optim.lr_scheduler.CosineAnnealingLR(temp_optimizer, T_max=num_training_steps)
         for _ in range(num_training_steps):
             lr_history.append(temp_optimizer.param_groups[0]['lr'])
