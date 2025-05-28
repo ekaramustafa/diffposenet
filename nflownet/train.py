@@ -85,7 +85,7 @@ def train(num_epochs, batch_size, train_root_dir, test_root_dir):
 
     if accelerator.is_local_main_process:
         print("\n============= Initializing the Model =============") 
-    model = NFlowNet(base_channels=37)
+    model = NFlowNet(base_channels=32)
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
     criterion = nn.MSELoss()
 
