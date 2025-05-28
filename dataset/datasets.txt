@@ -1,2 +1,3 @@
 abandonedfactory/Easy/flow_flow.zip 34.137856465
+abandonedfactory/Easy/image_left.zip 7.074777614
 abandonedfactory/Easy/flow_mask.zip 0.061432337
