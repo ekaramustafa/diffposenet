@@ -43,8 +43,8 @@ def train(num_epochs, batch_size, train_root_dir, test_root_dir):
             for i in range(torch.cuda.device_count()):
                 print(f"  GPU {i}: {torch.cuda.get_device_name(i)}")
 
-        print("Accelerator number of processes: ",  accelerator.num_processes)
-        batch_size = batch_size * accelerator.num_processes    
+        # print("Accelerator number of processes: ",  accelerator.num_processes)
+        # batch_size = batch_size * accelerator.num_processes    
                 
         print("\n============= Setting Up Wandb =============")
         wandb.login(key="66820f29cb45c85261f7dfd317c43275e8d82562")
@@ -69,8 +69,8 @@ def train(num_epochs, batch_size, train_root_dir, test_root_dir):
     # indices = torch.randperm(len(test_dataset)).tolist()[:len(test_dataset) // 3]
     # test_dataset = Subset(test_dataset, indices)
 
-    # Take 1/100 subset of train
-    indices = torch.randperm(len(train_dataset)).tolist()[:len(test_dataset) // 100]
+    # Take 2/100 subset of train
+    indices = torch.randperm(len(train_dataset)).tolist()[:len(test_dataset) // 50]
     train_dataset = Subset(train_dataset, indices)
 
     
