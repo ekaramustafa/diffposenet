@@ -220,7 +220,8 @@ class ImprovedPoseNet(nn.Module):
         q2 = F.normalize(q2, p=2, dim=2)
         
         dot = torch.abs(torch.sum(q1 * q2, dim=2))
-        dot = torch.clamp(dot, 0.0, 1.0)
+        # Add small epsilon to prevent numerical issues with acos
+        dot = torch.clamp(dot, 0.0, 1.0 - 1e-6)
         
         # Angular distance
         angle = 2 * torch.acos(dot)

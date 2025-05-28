@@ -39,11 +39,16 @@ def save_config(config, save_path):
         json.dump(config, f, indent=2)
 
 def main():
-    # Initialize accelerator for multi-GPU training
+    try:
+        wandb.login(key="fb69f02bed97fefd3f9a152ab12abb8b32896b3d")
+    except Exception as e:
+        print(f"Warning: wandb login failed: {e}")
+        print("You can set WANDB_API_KEY environment variable or run 'wandb login' manually")
+    
     accelerator = Accelerator(
         gradient_accumulation_steps=1,
         mixed_precision="fp16",  # Use mixed precision for faster training
-        log_with="wandb" if wandb.api.api_key else None,
+        log_with="wandb",
     )
     
     # Setup logging
@@ -58,7 +63,7 @@ def main():
         "use_attention": True,
         
         # Training parameters
-        "learning_rate": 1e-4,
+        "learning_rate": 1e-5,
         "batch_size": 6,  # Per GPU batch size (reduced for ResNet50)
         "epochs": 50,
         "seq_len": 6,
@@ -68,7 +73,7 @@ def main():
         
         # Loss parameters
         "lambda_q": 1.0,
-        "lambda_smooth": 0.1,
+        "lambda_smooth": 0.05,  # Reduced smoothness weight
         
         # Scheduler parameters
         "lr_scheduler": "cosine",
@@ -76,15 +81,15 @@ def main():
         "min_lr_ratio": 0.01,
         
         # Optimization parameters
-        "gradient_clip_norm": 1.0,
+        "gradient_clip_norm": 0.5, 
         "gradient_accumulation_steps": 1,
         
         # Checkpoint parameters
         "save_every": 5,
-        "eval_every": 2,
+        "eval_every": 1,
         
         # Data parameters
-        "train_subset_ratio": 0.2,  # Use 20% of training data for faster iteration
+        "train_subset_ratio": 0.5,  # Use 20% of training data for faster iteration
         "val_subset_ratio": 0.5,   # Use 50% of validation data
     }
     
@@ -218,7 +223,7 @@ def main():
         progress_bar = tqdm(
             train_loader, 
             desc=f"Epoch {epoch+1}/{config['epochs']} Training",
-            disable=not accelerator.is_local_main_process
+            disable=True  # Disable progress bar to reduce logging
         )
         
         for batch_idx, (images, translations, rotations) in enumerate(progress_bar):
@@ -230,6 +235,11 @@ def main():
                     lambda_q=config["lambda_q"],
                     lambda_smooth=config["lambda_smooth"]
                 )
+                
+                # Check for NaN loss
+                if torch.isnan(loss):
+                    logger.warning(f"NaN loss detected at epoch {epoch+1}, batch {batch_idx}. Skipping batch.")
+                    continue
                 
                 # Backward pass
                 accelerator.backward(loss)
@@ -287,7 +297,7 @@ def main():
             progress_bar = tqdm(
                 val_loader, 
                 desc=f"Epoch {epoch+1}/{config['epochs']} Validation",
-                disable=not accelerator.is_local_main_process
+                disable=True  # Disable progress bar to reduce logging
             )
             
             with torch.no_grad():
@@ -354,13 +364,13 @@ def main():
         if val_metrics['total_loss'] < best_val_loss:
             best_val_loss = val_metrics['total_loss']
             if accelerator.is_main_process:
-                accelerator.save_state(f"ebu/checkpoints/best_model_epoch_{epoch+1}")
+                accelerator.save_state(f"ebu/improved_posenet/checkpoints/best_model_epoch_{epoch+1}")
                 logger.info(f"New best model saved at epoch {epoch+1}")
         
         # Regular checkpoint saving
         if (epoch + 1) % config["save_every"] == 0:
             if accelerator.is_main_process:
-                accelerator.save_state(f"ebu/checkpoints/checkpoint_epoch_{epoch+1}")
+                accelerator.save_state(f"ebu/improved_posenet/checkpoints/checkpoint_epoch_{epoch+1}")
                 logger.info(f"Checkpoint saved at epoch {epoch+1}")
     
     # Final model saving
@@ -424,7 +434,7 @@ def main():
 
 if __name__ == "__main__":
     # Create necessary directories
-    os.makedirs("ebu/checkpoints", exist_ok=True)
-    os.makedirs("ebu/configs", exist_ok=True)
+    os.makedirs("ebu/improved_posenet/checkpoints", exist_ok=True)
+    os.makedirs("ebu/improved_posenet/configs", exist_ok=True)
     
     model = main() 
