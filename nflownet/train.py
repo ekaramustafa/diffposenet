@@ -22,12 +22,12 @@ def set_seed(seed=42):
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
+    torch.cuda.manual_seed_all(seed) 
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
 
-def train(num_epochs, batch_size, train_root_dir, test_root_dir):
+def train(num_epochs, batch_size, train_root_dir, test_root_dir):  
     set_seed()
     accelerator = Accelerator()
 
@@ -44,7 +44,7 @@ def train(num_epochs, batch_size, train_root_dir, test_root_dir):
                 print(f"  GPU {i}: {torch.cuda.get_device_name(i)}")
 
         batch_size = batch_size * accelerator.num_processes
-
+                
         print("\n============= Setting Up Wandb =============")
         wandb.login(key="66820f29cb45c85261f7dfd317c43275e8d82562")
         wandb.init(
@@ -72,7 +72,7 @@ def train(num_epochs, batch_size, train_root_dir, test_root_dir):
     # indices = torch.randperm(len(train_dataset)).tolist()[:len(test_dataset) // 100]
     # train_dataset = Subset(train_dataset, indices)
 
-
+    
     if accelerator.is_local_main_process:
         print("\n============= Dataloaders =============")
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=20, pin_memory=False, persistent_workers=False)
@@ -83,7 +83,7 @@ def train(num_epochs, batch_size, train_root_dir, test_root_dir):
     print(f"Validation set contains {len(test_dataset)} samples.")
 
     if accelerator.is_local_main_process:
-        print("\n============= Initializing the Model =============")
+        print("\n============= Initializing the Model =============") 
     model = NFlowNet(base_channels=37)
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
     criterion = nn.MSELoss()
@@ -96,7 +96,7 @@ def train(num_epochs, batch_size, train_root_dir, test_root_dir):
     )
 
     train_losses = []
-    test_losses = []
+    test_losses = []  
 
     if accelerator.is_local_main_process:
         print("\n============= Training Loop =============")
@@ -137,7 +137,7 @@ def train(num_epochs, batch_size, train_root_dir, test_root_dir):
         #             continue
         #         running_test_loss += loss.item()
         #         pbar.set_postfix({'Batch Loss': loss.item()})
-
+            
 
         # avg_test_loss = running_test_loss / len(test_loader)
         # test_losses.append(avg_test_loss)
@@ -160,13 +160,13 @@ def train(num_epochs, batch_size, train_root_dir, test_root_dir):
         #                 img2 = TF.to_pil_image(paired_batch[j][3:].cpu())
         #                 flow_pred = TF.to_pil_image(pred_flow[j].cpu())
         #                 flow_gt = TF.to_pil_image(gt_flow[j].cpu())
-
+                        
         #                 images_to_log[f"Sample {j+1} - Image 1"] = wandb.Image(img1, caption="Input Image 1")
         #                 images_to_log[f"Sample {j+1} - Image 2"] = wandb.Image(img2, caption="Input Image 2")
         #                 images_to_log[f"Sample {j+1} - Predicted Normal Flow"] = wandb.Image(flow_pred, caption="Predicted Normal Flow")
         #                 images_to_log[f"Sample {j+1} - Ground Truth Normal Flow"] = wandb.Image(flow_gt, caption="Ground Truth Normal Flow")
         #             break
-
+                       
         #     wandb.log({
         #         "epoch": epoch + 1,
         #         "train_loss": avg_train_loss,
