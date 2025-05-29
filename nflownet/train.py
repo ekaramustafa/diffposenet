@@ -73,6 +73,8 @@ def train(num_epochs, batch_size, train_root_dir, test_root_dir):
     indices = torch.randperm(len(train_dataset)).tolist()[:len(test_dataset) // 50]
     train_dataset = Subset(train_dataset, indices)
 
+    batch_size = batch_size * accelerator.num_processes
+
     
     if accelerator.is_local_main_process:
         print("\n============= Dataloaders =============")
@@ -179,9 +181,9 @@ def train(num_epochs, batch_size, train_root_dir, test_root_dir):
                 **images_to_log
             })
 
+        accelerator.wait_for_everyone()
         if accelerator.is_local_main_process:
             if epoch % 20 == 0:
-                accelerator.wait_for_everyone()
                 model_to_save = accelerator.unwrap_model(model)
                 torch.save(model_to_save.state_dict(), f"nflownet_epoch_{epoch}.pth")
                 print(f"Model saved to nflownet_epoch_{epoch}.pth")
