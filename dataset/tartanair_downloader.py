@@ -15,7 +15,7 @@ class TartanAirDownloader(object):
         self._isloaded = False
         self._levellist = ['Easy']
         self._typelist = ['image', 'flow']
-        self._cameralist = ['left', 'flow', 'mask']
+        self._cameralist = ['left', 'flow']
         self._dataset_info_path = "dataset/datasets.txt"
         if dataset_info_path is not None:
             self._dataset_info_path = dataset_info_path
@@ -24,7 +24,7 @@ class TartanAirDownloader(object):
         self.bucket_name = bucket_name
 
     
-    def load(self, levellist=['Easy'], typelist=['image', 'flow'], cameralist=['left', 'flow', 'mask']):
+    def load(self, levellist=['Easy'], typelist=['image', 'flow'], cameralist=['left', 'flow']):
         if levellist is None:
             levellist = self._levellist
         if typelist is None:
@@ -36,9 +36,9 @@ class TartanAirDownloader(object):
             lines = f.readlines()
         zipsizelist = []
         for ll in lines:
-            line = ll.strip()  # removes \n, \r, spaces
+            line = ll.strip()      # removes \n, \r, spaces
             if not line:
-                continue  # skip empty lines
+                continue           # skip empty lines
             parts = line.split()
             if parts and parts[0].endswith('.zip'):
                 zipsizelist.append(parts)
@@ -126,6 +126,6 @@ class TartanAirDownloader(object):
     
 if __name__ == "__main__":
     downloader = TartanAirDownloader(dataset_info_path="/scratch/users/imelanlioglu21/comp447_project/diffposenet/dataset/datasets.txt")
-    downloader.load(levellist=['Easy'], typelist=['image', 'flow'], cameralist=['left', 'flow', 'mask'])
+    downloader.load(levellist=['Easy'], typelist=['image', 'flow'], cameralist=['left', 'flow'])
     bl, lst = downloader.download("/scratch/users/imelanlioglu21/comp447_project/tartanair_dataset", ["hospital", "abandonedfactory", "soulcity"])
     print(lst)
