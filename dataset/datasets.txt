@@ -2,5 +2,3 @@ hospital/Easy/image_left.zip 7.192729599
 hospital/Easy/flow_flow.zip 39.195514467
 abandonedfactory/Easy/flow_flow.zip 34.137856465
 abandonedfactory/Easy/image_left.zip 7.074777614
-soulcity/Easy/flow_flow.zip 29.165390391
-soulcity/Easy/image_left.zip 6.885228694
