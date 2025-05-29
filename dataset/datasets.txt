@@ -1,6 +1,6 @@
+hospital/Easy/image_left.zip 7.192729599
 hospital/Easy/flow_flow.zip 39.195514467
 hospital/Easy/flow_mask.zip 0.048007754
-hospital/Easy/image_left.zip 7.192729599
 abandonedfactory/Easy/flow_flow.zip 34.137856465
 abandonedfactory/Easy/flow_mask.zip 0.061432337
 abandonedfactory/Easy/image_left.zip 7.074777614
