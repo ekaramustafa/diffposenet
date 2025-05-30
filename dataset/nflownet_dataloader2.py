@@ -32,20 +32,18 @@ class nflownet_dataloader(Dataset):
                             traj_path = os.path.join(difficulty_path, traj_dir)
                             if os.path.isdir(traj_path):
                                 image_dir = os.path.join(traj_path, 'image_left')
-                                flow_dir = os.path.join(traj_path, 'flow')
+                                normal_flow_dir = os.path.join(traj_path, 'normal_flow')
 
                                 if os.path.exists(image_dir) and os.path.exists(flow_dir):
                                     image_files = sorted(glob.glob(os.path.join(image_dir, '*.png')))
-                                    flow_files = sorted(glob.glob(os.path.join(flow_dir, '*_flow.npy')))
-                                    flow_mask_files = sorted(glob.glob(os.path.join(flow_dir, '*_mask.npy')))
+                                    normal_flow_files = sorted(glob.glob(os.path.join(normal_flow_dir, '*.pt')))
                                     
-                                    if (len(image_files) == len(flow_files) + 1):
-                                        for i in range(len(flow_files)):
+                                    if (len(image_files) == len(normal_flow_files) + 1):
+                                        for i in range(len(normal_flow_files)):
                                             img1 = image_files[i]
                                             img2 = image_files[i+1]
-                                            flow = flow_files[i]
-                                            flow_mask = flow_mask_files[i]
-                                            self.data_paths.append((img1, img2, flow, flow_mask))
+                                            normal_flow = normal_flow_files[i]
+                                            self.data_paths.append((img1, img2, normal_flow))
                                     else:
                                         warnings.warn(f"Length mismatch in {traj_path}")
                                     
@@ -54,30 +52,13 @@ class nflownet_dataloader(Dataset):
         return len(self.data_paths)
 
     def __getitem__(self, idx):
-        img1_path, img2_path, flow_path, flow_mask_path = self.data_paths[idx]
+        img1_path, img2_path, normal_flow_path = self.data_paths[idx]
 
         img1 = self._read_image(img1_path)
         img2 = self._read_image(img2_path)
-        flow = self._read_opt_flow(flow_path)
-        flow_mask = self._read_opt_mask(flow_mask_path)
-        weights = 1.0 - (flow_mask / 100.0)
-        masked_flow = flow * weights
-        paired_images = torch.cat([img1, img2], dim=0)  # shape (6, H, W)
-        with torch.no_grad():
-            normal_flow = compute_normal_flow(masked_flow, paired_images)        
-        return paired_images.detach(), normal_flow.detach()
-
-    def _read_opt_mask(self, opt_mask_path):
-        opt_mask = np.load(opt_mask_path)
-        opt_mask = torch.from_numpy(opt_mask).unsqueeze(0).float()
-        opt_mask = self._crop_to_divisible_by_16(opt_mask)
-        return opt_mask
-        
-    def _read_opt_flow(self, opt_flow_path):
-        opt_flow = np.load(opt_flow_path)
-        opt_flow = torch.from_numpy(opt_flow).permute(2, 0, 1).float()
-        opt_flow = self._crop_to_divisible_by_16(opt_flow)
-        return opt_flow
+        normal_flow = torch.load(normal_flow_path).float()
+        paired_images = torch.cat([img1, img2], dim=0)     
+        return paired_images, normal_flow
     
     def _read_image(self, image_path):
         image = Image.open(image_path).convert('RGB')
