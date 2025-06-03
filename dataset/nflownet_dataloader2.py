@@ -38,14 +38,20 @@ class nflownet_dataloader(Dataset):
                                 if os.path.exists(image_dir) and os.path.exists(normal_flow_dir):
                                     image_files = sorted(glob.glob(os.path.join(image_dir, '*.png')))
                                     normal_flow_files = sorted(glob.glob(os.path.join(normal_flow_dir, '*.pt')))
+                                    normal_flow_files = sorted(glob.glob(os.path.join(normal_flow_dir, '*.pt')))
                                     
+                                    if (len(image_files) == len(normal_flow_files) + 1):
+                                        for i in range(len(normal_flow_files)):
                                     if (len(image_files) == len(normal_flow_files) + 1):
                                         for i in range(len(normal_flow_files)):
                                             img1 = image_files[i]
                                             img2 = image_files[i+1]
                                             normal_flow = normal_flow_files[i]
                                             self.data_paths.append((img1, img2, normal_flow))
+                                            normal_flow = normal_flow_files[i]
+                                            self.data_paths.append((img1, img2, normal_flow))
                                     else:
+                                        warnings.warn(f"Length mismatch in {traj_path}")
                                         warnings.warn(f"Length mismatch in {traj_path}")
                                     
 
@@ -54,9 +60,12 @@ class nflownet_dataloader(Dataset):
 
     def __getitem__(self, idx):
         img1_path, img2_path, normal_flow_path = self.data_paths[idx]
+        img1_path, img2_path, normal_flow_path = self.data_paths[idx]
 
         img1 = self._read_image(img1_path)
         img2 = self._read_image(img2_path)
+        normal_flow = torch.load(normal_flow_path).float()
+        paired_images = torch.cat([img1, img2], dim=0)     
         normal_flow = torch.load(normal_flow_path).float()
         paired_images = torch.cat([img1, img2], dim=0)     
         return paired_images, normal_flow
