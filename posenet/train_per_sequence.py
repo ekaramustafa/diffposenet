@@ -58,22 +58,23 @@ def get_experiment_configs():
         "weight_decay": 1e-4,
         "skip": 1,
         
-        "lambda_q": 1.0,
+        "lambda_q": 1.0, # balance factor between translation and quaternion loss
         
-        "lr_scheduler": "cosine",
-        "warmup_epochs": 5,
-        "min_lr_ratio": 0.01,
+        # we do not use lr scheduler in this experiment
+        # "lr_scheduler": "cosine",
+        # "warmup_epochs": 5,
+        # "min_lr_ratio": 0.01,
         
-        "gradient_clip_norm": 0.5, 
-        "gradient_accumulation_steps": 1,
+        "gradient_clip_norm": 0.5, # gradient clipping
+        "gradient_accumulation_steps": 1, # gradient accumulation
         
-        "save_every": 5,
-        "eval_every": 1,
+        "save_every": 5, # save model every 5 epochs
+        "eval_every": 1, # evaluate model every 1 epoch
         
-        "train_subset_ratio": 1,
-        "val_subset_ratio": 1,
+        "train_subset_ratio": 1, # train on 100% of the data
+        "val_subset_ratio": 1, # val on 100% of the data
         
-        "evaluate_per_sequence": True,
+        "evaluate_per_sequence": True, # evaluate per sequence
     }
     
     configs = [
