@@ -163,3 +163,96 @@ class PoseNetDino(PoseNet):
         q = q / q.norm(dim=2, keepdim=True)     # normalize quaternion
 
         return t, q
+
+
+class PoseNetDinoContrastive(PoseNetDino):
+    def __init__(self, model_size='base', freeze_dino=True, projection_dim=128, temperature=0.07):
+        super().__init__(model_size=model_size, freeze_dino=freeze_dino)
+        
+        self.projection_dim = projection_dim
+        self.temperature = temperature
+        
+        self.dino_projector = nn.Sequential(
+            nn.Linear(self.feature_dim, self.projection_dim),
+            nn.ReLU(),
+            nn.Linear(self.projection_dim, self.projection_dim)
+        )
+        
+        self.lstm_projector = nn.Sequential(
+            nn.Linear(self.hidden_dim, self.projection_dim),
+            nn.ReLU(),
+            nn.Linear(self.projection_dim, self.projection_dim)
+        )
+        
+    def forward(self, x, return_contrastive_features=False):
+        batch_size, seq_len, C, H, W = x.shape  # [B, 6, 3, H, W]
+        dino_feats = []
+        raw_dino_feats = []
+
+        for t in range(seq_len):
+            feat = self.extract_cls_token(x[:, t])  # [B, feature_dim]
+            dino_feats.append(feat)
+            raw_dino_feats.append(feat)
+
+        feats = torch.stack(dino_feats, dim=1)  # [B, 6, feature_dim]
+        raw_dino_feats = torch.stack(raw_dino_feats, dim=1)  # [B, 6, feature_dim]
+        
+        lstm_out, _ = self.lstm(feats)          # [B, 6, hidden_dim]
+
+        dino_contrastive = raw_dino_feats[:, 1:]  # [B, 5, feature_dim]
+        lstm_contrastive = lstm_out[:, 1:]        # [B, 5, hidden_dim]
+        
+        dino_projected = self.dino_projector(dino_contrastive.reshape(-1, self.feature_dim))  # [B*5, projection_dim]
+        lstm_projected = self.lstm_projector(lstm_contrastive.reshape(-1, self.hidden_dim))   # [B*5, projection_dim]
+        
+        dino_projected = F.normalize(dino_projected, dim=1)
+        lstm_projected = F.normalize(lstm_projected, dim=1)
+        
+        dino_projected = dino_projected.reshape(batch_size, 5, self.projection_dim)
+        lstm_projected = lstm_projected.reshape(batch_size, 5, self.projection_dim)
+
+        t = self.translation_fc(lstm_contrastive)       # [B, 5, 3]
+        q = self.rotation_fc(lstm_contrastive)          # [B, 5, 4]
+        q = q / q.norm(dim=2, keepdim=True)             # normalize quaternion
+
+        if return_contrastive_features:
+            return t, q, dino_projected, lstm_projected
+        else:
+            return t, q
+    
+    def contrastive_loss(self, dino_proj, lstm_proj):
+        batch_size, seq_len, proj_dim = dino_proj.shape
+        
+        dino_flat = dino_proj.reshape(-1, proj_dim)  
+        lstm_flat = lstm_proj.reshape(-1, proj_dim)  
+        
+        logits = torch.matmul(dino_flat, lstm_flat.T) / self.temperature 
+        
+        labels = torch.arange(batch_size * seq_len, device=dino_proj.device)
+        
+        loss_dino_to_lstm = F.cross_entropy(logits, labels)
+        loss_lstm_to_dino = F.cross_entropy(logits.T, labels)
+        
+        contrastive_loss = (loss_dino_to_lstm + loss_lstm_to_dino) / 2
+        
+        return contrastive_loss
+    
+    def pose_loss(self, t_pred, q_pred, t_gt, q_gt, 
+                                   dino_proj, lstm_proj, 
+                                   lambda_q=0.01, lambda_contrastive=0.1):
+        
+        loss_t = F.mse_loss(t_pred, t_gt.squeeze(1))
+        loss_q = self.quaternion_loss(q_pred=q_pred, q_gt=q_gt)
+        pose_loss = loss_t + lambda_q * loss_q
+        
+        contrastive_loss = self.contrastive_loss(dino_proj, lstm_proj)
+        
+        total_loss = pose_loss + lambda_contrastive * contrastive_loss
+        
+        return total_loss, {
+            'translation_loss': loss_t.item(),
+            'quaternion_loss': loss_q.item(),
+            'contrastive_loss': contrastive_loss.item(),
+            'pose_loss': pose_loss.item(),
+            'total_loss': total_loss.item()
+        }
