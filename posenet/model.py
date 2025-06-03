@@ -55,7 +55,7 @@ class PoseNet(nn.Module):
 
         return t, q
 
-    def pose_loss(self, t_pred, q_pred, t_gt, q_gt, lambda_q=0.01):
+    def pose_loss(self, t_pred, q_pred, t_gt, q_gt, lambda_q=0.0001):
         loss_t = F.mse_loss(t_pred, t_gt.squeeze(1))
         loss_q = self.quaternion_loss(q_pred = q_pred, q_gt = q_gt)
         return loss_t + lambda_q * loss_q,  {
@@ -76,9 +76,6 @@ class PoseNet(nn.Module):
     #     weighted_loss_q = precision_q * loss_q + self.log_var_q
         
     #     total_loss = weighted_loss_t + weighted_loss_q
-        
-    #     # Ensure loss is non-negative
-    #     total_loss = torch.clamp(total_loss, min=0.0)
         
     #     return total_loss, {
     #         'translation_loss': loss_t.item(),

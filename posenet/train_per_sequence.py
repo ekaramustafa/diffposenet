@@ -58,7 +58,7 @@ def get_experiment_configs():
         "weight_decay": 1e-4,
         "skip": 1,
         
-        "lambda_q": 1.0, # balance factor between translation and quaternion loss
+        "lambda_q": 0.001, # balance factor between translation and quaternion loss
         
         # we do not use lr scheduler in this experiment
         # "lr_scheduler": "cosine",
