@@ -13,11 +13,14 @@ from accelerate.utils import set_seed as accelerate_set_seed
 import logging
 import json
 from datetime import datetime
+import torch.nn as nn
+
+# Add project root to path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from model_improved import ImprovedPoseNet
-
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from dataset.tartanair import TartanAirDataset
+from evaluation_metrics import TrajectoryEvaluator, convert_relative_to_absolute_poses
 
 def setup_logging(accelerator):
     """Setup logging that works with multi-GPU training"""
@@ -89,8 +92,8 @@ def main():
         "eval_every": 1,
         
         # Data parameters
-        "train_subset_ratio": 0.5,  # Use 50% of training data for faster iteration
-        "val_subset_ratio": 0.5,   # Use 50% of validation data
+        "train_subset_ratio": 0.5,
+        "val_subset_ratio": 1, 
     }
     
     # Initialize wandb only on main process
@@ -123,6 +126,7 @@ def main():
         size=config["image_size"], 
         seq_len=config["seq_len"]
     )
+    
     
     # Create subsets for faster training
     train_size = int(len(train_dataset) * config["train_subset_ratio"])
@@ -267,10 +271,10 @@ def main():
                 
                 # Learning rate scheduling
                 # Temporarily disabled for testing - uncomment to re-enable
-                # if global_step < warmup_steps:
-                #     warmup_scheduler.step()
-                # else:
-                #     scheduler.step()
+                if global_step < warmup_steps:
+                    warmup_scheduler.step()
+                else:
+                    scheduler.step()
                 
                 optimizer.zero_grad()
                 global_step += 1
@@ -310,6 +314,15 @@ def main():
             }
             num_val_batches = 0
             
+            # Initialize trajectory evaluator
+            trajectory_evaluator = TrajectoryEvaluator(align_trajectories=True)
+            
+            # Collect all predictions and ground truth for trajectory evaluation
+            all_pred_translations = []
+            all_pred_quaternions = []
+            all_gt_translations = []
+            all_gt_quaternions = []
+            
             progress_bar = tqdm(
                 val_loader, 
                 desc=f"Epoch {epoch+1}/{config['epochs']} Validation",
@@ -332,6 +345,31 @@ def main():
                             gathered_metric = accelerator.gather(metric_tensor)
                             val_metrics[key] += gathered_metric.mean().item()
                     
+                    # Collect predictions and ground truth for trajectory evaluation
+                    # Convert relative poses to absolute poses for evaluation
+                    batch_size, seq_len, _ = t_pred.shape
+                    
+                    for b in range(batch_size):
+                        # Get relative poses for this sequence
+                        rel_t = t_pred[b]  # [seq_len-1, 3]
+                        rel_q = q_pred[b]  # [seq_len-1, 4]
+                        gt_t = translations[b]  # [seq_len-1, 3]
+                        gt_q = rotations[b]  # [seq_len-1, 4]
+                        
+                        # Convert to absolute poses
+                        try:
+                            abs_t_pred, abs_q_pred = convert_relative_to_absolute_poses(rel_t, rel_q)
+                            abs_t_gt, abs_q_gt = convert_relative_to_absolute_poses(gt_t, gt_q)
+                            
+                            # Collect for trajectory evaluation
+                            all_pred_translations.append(abs_t_pred)
+                            all_pred_quaternions.append(abs_q_pred)
+                            all_gt_translations.append(abs_t_gt)
+                            all_gt_quaternions.append(abs_q_gt)
+                        except Exception as e:
+                            logger.warning(f"Error converting poses to absolute: {e}")
+                            continue
+                    
                     num_val_batches += 1
                     
                     if accelerator.is_local_main_process:
@@ -341,9 +379,42 @@ def main():
             for key in val_metrics:
                 val_metrics[key] /= num_val_batches
             
+            # Compute trajectory evaluation metrics
+            trajectory_metrics = {}
+            if all_pred_translations and accelerator.is_main_process:
+                try:
+                    # Concatenate all trajectories
+                    pred_translations = torch.cat(all_pred_translations, dim=0)
+                    pred_quaternions = torch.cat(all_pred_quaternions, dim=0)
+                    gt_translations = torch.cat(all_gt_translations, dim=0)
+                    gt_quaternions = torch.cat(all_gt_quaternions, dim=0)
+                    
+                    logger.info(f"Evaluating trajectory with {len(pred_translations)} poses")
+                    
+                    # Compute ATE and RPE metrics
+                    trajectory_metrics = trajectory_evaluator.evaluate_trajectory(
+                        pred_translations, pred_quaternions,
+                        gt_translations, gt_quaternions,
+                        delta_t_list=[1, 5, 10]
+                    )
+                    
+                    logger.info(f"Trajectory evaluation completed:")
+                    logger.info(f"  ATE RMSE: {trajectory_metrics.get('ATE_RMSE', 'N/A'):.4f}")
+                    logger.info(f"  RPE Trans (Δt=1): {trajectory_metrics.get('RPE_trans_RMSE_dt1', 'N/A'):.4f}")
+                    logger.info(f"  RPE Rot (Δt=1): {trajectory_metrics.get('RPE_rot_mean_deg_dt1', 'N/A'):.2f}°")
+                    
+                except Exception as e:
+                    logger.error(f"Error computing trajectory metrics: {e}")
+                    trajectory_metrics = {
+                        'ATE_RMSE': float('inf'),
+                        'RPE_trans_RMSE_dt1': float('inf'),
+                        'RPE_rot_mean_deg_dt1': float('inf')
+                    }
+            
             val_losses.append(val_metrics['total_loss'])
         else:
             val_metrics = {'total_loss': val_losses[-1] if val_losses else float('inf')}
+            trajectory_metrics = {}
             val_losses.append(val_metrics['total_loss'])
         
         # Logging (only on main process)
@@ -366,15 +437,50 @@ def main():
                     "val/smoothness_t": val_metrics['smoothness_t'],
                     "val/smoothness_q": val_metrics['smoothness_q'],
                 })
+                
+                # Add trajectory metrics to logging
+                if trajectory_metrics:
+                    # ATE metrics
+                    if 'ATE_RMSE' in trajectory_metrics:
+                        log_dict.update({
+                            "val/ATE_RMSE": trajectory_metrics['ATE_RMSE'],
+                            "val/ATE_mean": trajectory_metrics.get('ATE_mean', 0),
+                            "val/ATE_std": trajectory_metrics.get('ATE_std', 0),
+                            "val/ATE_median": trajectory_metrics.get('ATE_median', 0),
+                        })
+                    
+                    # RPE metrics for different delta_t values
+                    for dt in [1, 5, 10]:
+                        if f'RPE_trans_RMSE_dt{dt}' in trajectory_metrics:
+                            log_dict.update({
+                                f"val/RPE_trans_RMSE_dt{dt}": trajectory_metrics[f'RPE_trans_RMSE_dt{dt}'],
+                                f"val/RPE_rot_mean_deg_dt{dt}": trajectory_metrics.get(f'RPE_rot_mean_deg_dt{dt}', 0),
+                                f"val/RPE_trans_mean_dt{dt}": trajectory_metrics.get(f'RPE_trans_mean_dt{dt}', 0),
+                                f"val/RPE_rot_std_dt{dt}": trajectory_metrics.get(f'RPE_rot_std_dt{dt}', 0),
+                            })
             
             wandb.log(log_dict)
             
-            logger.info(
+            # Enhanced console logging with trajectory metrics
+            log_message = (
                 f"Epoch {epoch+1}/{config['epochs']} - "
                 f"Train Loss: {epoch_metrics['total_loss']:.6f} - "
                 f"Val Loss: {val_metrics['total_loss']:.6f} - "
                 f"LR: {optimizer.param_groups[0]['lr']:.2e}"
             )
+            
+            if trajectory_metrics and (epoch + 1) % config["eval_every"] == 0:
+                ate_rmse = trajectory_metrics.get('ATE_RMSE', float('inf'))
+                rpe_trans = trajectory_metrics.get('RPE_trans_RMSE_dt1', float('inf'))
+                rpe_rot = trajectory_metrics.get('RPE_rot_mean_deg_dt1', float('inf'))
+                
+                log_message += (
+                    f" - ATE: {ate_rmse:.4f} - "
+                    f"RPE_t: {rpe_trans:.4f} - "
+                    f"RPE_r: {rpe_rot:.2f}°"
+                )
+            
+            logger.info(log_message)
         
         # Save checkpoint
         if val_metrics['total_loss'] < best_val_loss:

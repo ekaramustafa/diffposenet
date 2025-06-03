@@ -58,7 +58,7 @@ class NFlowNet(nn.Module):
         self,
         depth: int = 2,
         in_channels: int = 6,
-        base_channels: int = 37,    
+        base_channels: int = 32,    
         expansion_rate: int = 2,     
     ):
         super().__init__()

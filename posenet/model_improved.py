@@ -192,7 +192,7 @@ class ImprovedPoseNet(nn.Module):
         
         return total_loss, {
             'translation_loss': loss_t.item(),
-            'rotation_loss': loss_q.item(),
+            'quaternion_loss': loss_q.item(),
             'smoothness_t': loss_smooth_t.item() if isinstance(loss_smooth_t, torch.Tensor) else loss_smooth_t,
             'smoothness_q': loss_smooth_q.item() if isinstance(loss_smooth_q, torch.Tensor) else loss_smooth_q,
             'total_loss': total_loss.item()

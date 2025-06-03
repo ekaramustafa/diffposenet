@@ -4,15 +4,22 @@ import torch
 from torch.utils.data import Dataset
 from torchvision import transforms
 from PIL import Image
+import logging
+
+logger = logging.getLogger(__name__)
 
 class TartanAirDataset(Dataset):
-    def __init__(self, root_dir, seq_len=2, transform=None, size=None, skip=1):
+    def __init__(self, root_dir, seq_len=2, transform=None, size=None, skip=1, track_sequences=False):
+        logger.info(f"Initializing TartanAirDataset with root_dir: {root_dir}, seq_len: {seq_len}, skip: {skip}, track_sequences: {track_sequences}")
+        
         self.root_dir = root_dir
         self.transform = transform
         self.seq_len = seq_len
         self.skip = skip
+        self.track_sequences = track_sequences
 
         if transform is None:
+            logger.debug("No transform provided, using default transform")
             self.transform = transforms.Compose([
                 transforms.Resize((480, 640)) if size is None else transforms.Resize(size),
                 transforms.ToTensor(),
@@ -21,15 +28,50 @@ class TartanAirDataset(Dataset):
 
         self.image_files = []
         self.pose_files = []
+        
+        self.sequence_mapping = []  # Maps each data point to its sequence
+        self.sequence_names = []    # Unique sequence names
+        self.sequence_boundaries = {}  # Start and end indices for each sequence
 
-        # ONLY store paths here
-        for envs_dir in os.listdir(root_dir):
-            env_path = os.path.join(root_dir, envs_dir)
+        # Collect all image and pose files
+        self._collect_files()
+
+        logger.info("Sorting image and pose files")
+        self.image_files.sort()
+        logger.debug(f"Total image files found: {len(self.image_files)}")
+        logger.debug(f"Last sorted image file: {self.image_files[-1] if self.image_files else 'None'}")
+        
+        self.pose_files.sort()
+        logger.info(f"Total pose files found: {len(self.pose_files)}")
+
+        # If tracking sequences, create mapping and boundaries after sorting
+        if self.track_sequences:
+            logger.info("Creating sequence mapping and boundaries")
+            self._create_sequence_mapping_and_boundaries()
+            logger.info(f"Tracking {len(self.sequence_names)} sequences: {self.sequence_names}")
+
+        # load poses only once (small memory footprint)
+        self.poses = self._read_ground_truth(self.pose_files)
+
+    def _collect_files(self):
+        """Collect all image and pose files from the directory structure"""
+        for envs_dir in os.listdir(self.root_dir):
+            env_path = os.path.join(self.root_dir, envs_dir)
+            logger.debug(f"Processing environment: {envs_dir}")
+            
             for difficulty in os.listdir(env_path):
                 difficulty_path = os.path.join(env_path, difficulty)
                 if difficulty == "Easy":
+                    logger.debug(f"Processing difficulty level: {difficulty}")
+                    
                     for traj_dir in os.listdir(difficulty_path):
+                        if traj_dir.startswith("ME"): # do not include the ME part from challenge dataset
+                            logger.debug(f"Skipping ME trajectory: {traj_dir}")
+                            continue
+                            
                         traj_path = os.path.join(difficulty_path, traj_dir)
+                        logger.debug(f"Processing trajectory: {traj_dir}")
+                        
                         for traj in os.listdir(traj_path):
                             file_path = os.path.join(traj_path, traj)
                             if os.path.isdir(file_path):
@@ -39,11 +81,69 @@ class TartanAirDataset(Dataset):
                             if file_path.endswith("left.txt"):
                                 self.pose_files.append(file_path)
 
-        self.image_files.sort()
-        self.pose_files.sort()
+    def _create_sequence_mapping_and_boundaries(self):
+        """Create mapping from data indices to sequence names and calculate boundaries after sorting"""
+        self.sequence_mapping = ['unknown'] * len(self.image_files)
+        self.sequence_names = []
+        self.sequence_boundaries = {}
+        
+        # Group images by sequence name based on file paths
+        sequence_groups = {}
+        for i, img_path in enumerate(self.image_files):
+            # Extract sequence name from path
+            # Assuming path structure like: .../environment/Easy/trajectory_name/...
+            path_parts = img_path.split(os.sep)
+            sequence_name = None
+            
+            # Find the trajectory directory name (comes after "Easy")
+            for j, part in enumerate(path_parts):
+                if part == "Easy" and j + 1 < len(path_parts):
+                    sequence_name = path_parts[j + 1]
+                    break
+            
+            if sequence_name and not sequence_name.startswith("ME"):
+                if sequence_name not in sequence_groups:
+                    sequence_groups[sequence_name] = []
+                sequence_groups[sequence_name].append(i)
+                self.sequence_mapping[i] = sequence_name
+        
+        # Create sequence names list and boundaries
+        for seq_name, indices in sequence_groups.items():
+            if seq_name not in self.sequence_names:
+                self.sequence_names.append(seq_name)
+            
+            if indices:  # Only if there are images in this sequence
+                self.sequence_boundaries[seq_name] = {
+                    'start': min(indices),
+                    'end': max(indices),
+                    'length': len(indices),
+                    'indices': sorted(indices)
+                }
+        
+        # Sort sequence names for consistency
+        self.sequence_names.sort()
+        
+        logger.debug(f"Created sequence boundaries: {self.sequence_boundaries}")
 
-        # load poses only once (small memory footprint)
-        self.poses = self._read_ground_truth(self.pose_files)
+    def get_sequence_for_index(self, idx):
+        """Get sequence name for a given data index"""
+        if not self.track_sequences:
+            return None
+        if idx < len(self.sequence_mapping):
+            return self.sequence_mapping[idx]
+        return None
+
+    def get_sequence_boundaries(self):
+        """Get sequence boundaries for per-sequence evaluation"""
+        if not self.track_sequences:
+            return None
+        return self.sequence_boundaries.copy()
+
+    def get_sequence_names(self):
+        """Get list of all sequence names"""
+        if not self.track_sequences:
+            return None
+        return self.sequence_names.copy()
 
     def __len__(self):
         return len(self.image_files) - (self.seq_len - 1) * self.skip
@@ -70,7 +170,12 @@ class TartanAirDataset(Dataset):
         translations = torch.stack([p[0] for p in poses], dim=0)
         rotations = torch.stack([p[1] for p in poses], dim=0)
 
-        return image_seq, translations, rotations
+        # Return sequence info if tracking
+        if self.track_sequences:
+            sequence_name = self.get_sequence_for_index(idx)
+            return image_seq, translations, rotations, sequence_name
+        else:
+            return image_seq, translations, rotations
 
     def _compute_relative_pose(self, pose1, pose2):
         t1 = np.array(pose1[:3])

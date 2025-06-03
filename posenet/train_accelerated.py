@@ -47,7 +47,8 @@ def main():
         "learning_rate": 1e-5,
         "batch_size": 8,  # Per GPU batch size
         "epochs": 30,
-        "seq_len": 6,
+        "train_seq_len": 6,
+        "val_seq_len": 2,
         "image_size": (224, 224),
         "num_workers": 4,
         "weight_decay": 1e-4,
@@ -65,7 +66,6 @@ def main():
             config=config
         )
     
-    # Set random seed for reproducibility across all processes
     accelerate_set_seed(42)
     
     # Dataset loading
@@ -73,12 +73,12 @@ def main():
     train_dataset = TartanAirDataset(
         root_dir="/kuacc/users/imelanlioglu21/comp447_project/tartanair_dataset/train_data/", 
         size=config["image_size"], 
-        seq_len=config["seq_len"]
+        seq_len=config["train_seq_len"]
     )
     val_dataset = TartanAirDataset(
         root_dir="/kuacc/users/imelanlioglu21/comp447_project/tartanair_dataset/test_data/", 
         size=config["image_size"], 
-        seq_len=config["seq_len"]
+        seq_len=config["val_seq_len"]
     )
     
     # Subset for faster training (adjust as needed)
@@ -95,7 +95,7 @@ def main():
         shuffle=True, 
         num_workers=config["num_workers"], 
         pin_memory=True,
-        drop_last=True  # Important for multi-GPU training
+        drop_last=True
     )
     val_loader = DataLoader(
         val_dataset, 
@@ -106,17 +106,14 @@ def main():
         drop_last=False
     )
     
-    # Model initialization
     pose_net = PoseNet()
     
-    # Optimizer with weight decay
     optimizer = optim.AdamW(
         pose_net.parameters(), 
         lr=config["learning_rate"],
         weight_decay=config["weight_decay"]
     )
     
-    # Learning rate scheduler
     num_training_steps = len(train_loader) * config["epochs"]
     if config["lr_scheduler"] == "cosine":
         scheduler = optim.lr_scheduler.CosineAnnealingLR(
@@ -127,7 +124,6 @@ def main():
     else:
         scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
     
-    # Prepare everything with accelerator
     pose_net, optimizer, train_loader, val_loader, scheduler = accelerator.prepare(
         pose_net, optimizer, train_loader, val_loader, scheduler
     )
@@ -135,14 +131,11 @@ def main():
     logger.info(f"Training on {accelerator.num_processes} GPUs")
     logger.info(f"Effective batch size: {config['batch_size'] * accelerator.num_processes}")
     
-    # Training metrics
     train_losses = []
     val_losses = []
     best_val_loss = float('inf')
     
-    # Training loop
     for epoch in range(config["epochs"]):
-        # Training phase
         pose_net.train()
         total_train_loss = 0.0
         num_batches = 0
@@ -155,14 +148,11 @@ def main():
         
         for batch_idx, (images, translations, rotations) in enumerate(progress_bar):
             with accelerator.accumulate(pose_net):
-                # Forward pass
                 t_pred, q_pred = pose_net(images)
                 loss = pose_net.module.pose_loss(t_pred, q_pred, translations, rotations)
                 
-                # Backward pass
                 accelerator.backward(loss)
                 
-                # Gradient clipping
                 if accelerator.sync_gradients:
                     accelerator.clip_grad_norm_(pose_net.parameters(), config["gradient_clip_norm"])
                 
@@ -170,12 +160,10 @@ def main():
                 scheduler.step()
                 optimizer.zero_grad()
             
-            # Gather loss from all processes
             loss_gathered = accelerator.gather(loss.detach())
             total_train_loss += loss_gathered.mean().item()
             num_batches += 1
             
-            # Update progress bar
             if accelerator.is_local_main_process:
                 progress_bar.set_postfix({
                     'loss': f'{loss.item():.6f}',
@@ -185,7 +173,6 @@ def main():
         avg_train_loss = total_train_loss / num_batches
         train_losses.append(avg_train_loss)
         
-        # Validation phase
         pose_net.eval()
         total_val_loss = 0.0
         num_val_batches = 0
@@ -201,7 +188,6 @@ def main():
                 t_pred, q_pred = pose_net(images)
                 loss = pose_net.module.pose_loss(t_pred, q_pred, translations, rotations)
                 
-                # Gather loss from all processes
                 loss_gathered = accelerator.gather(loss.detach())
                 total_val_loss += loss_gathered.mean().item()
                 num_val_batches += 1
@@ -212,7 +198,6 @@ def main():
         avg_val_loss = total_val_loss / num_val_batches
         val_losses.append(avg_val_loss)
         
-        # Logging (only on main process)
         if accelerator.is_main_process:
             wandb.log({
                 "epoch": epoch + 1,
