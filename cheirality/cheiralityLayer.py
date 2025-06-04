@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import grad
+from nflownet.utils import compute_image_gradients
 
 
 class CheiralityLayer(nn.Module):
@@ -13,15 +14,6 @@ class CheiralityLayer(nn.Module):
         for p in self.nflownet.parameters():
             p.requires_grad = False
 
-    def get_normal_flow(self, img_pair):
-        with torch.no_grad():
-            return self.nflownet(img_pair)  # [B, 2, H, W]
-
-    def get_image_gradients(self, gray):
-        gx = F.conv2d(gray, torch.tensor([[[[-1, 0, 1]]]], device=gray.device), padding=(0, 1))
-        gy = F.conv2d(gray, torch.tensor([[[[-1], [0], [1]]]], device=gray.device), padding=(1, 0))
-        norm = torch.sqrt(gx ** 2 + gy ** 2 + 1e-8)
-        return torch.cat([gx / norm, gy / norm], dim=1)
 
     def construct_A_B(self, H, W, device):
         y, x = torch.meshgrid(torch.arange(H), torch.arange(W), indexing='ij')
@@ -35,14 +27,10 @@ class CheiralityLayer(nn.Module):
         ], dim=0).reshape(2, 3, H, W)
         return A, B
 
-    def cheirality_loss(self, img_pair, pose):
-        B, _, H, W = img_pair.shape
-        device = img_pair.device
+    def cheirality_loss(self, img_pair_shape, pose, grad_dirs, normal_flow, device):
+        B, _, H, W = img_pair_shape
         V, W_ = pose[:, :3], pose[:, 3:]
 
-        normal_flow = self.get_normal_flow(img_pair)  # [B, 2, H, W]
-        gray = img_pair[:, :3].mean(1, keepdim=True)
-        grad_dirs = self.get_image_gradients(gray)  # [B, 2, H, W]
         A, B_mat = self.construct_A_B(H, W, device)
 
         loss = 0
@@ -56,42 +44,92 @@ class CheiralityLayer(nn.Module):
             loss += gelu_rho.mean()
         return loss / B
 
-    def refine_pose(self, img_pair, Pec):
+    def refine_pose(self, img_pair_shape, Pec, grad_dirs, normal_flow):
+        B = Pec.shape[0]
         Per = Pec.clone().detach().requires_grad_(True)
+
         optimizer = torch.optim.LBFGS([Per], max_iter=300, line_search_fn="strong_wolfe")
 
         def closure():
             optimizer.zero_grad()
-            loss = self.cheirality_loss(img_pair, Per)
+            loss = self.cheirality_loss(img_pair_shape, Per, grad_dirs, normal_flow, Pec.device)
             loss.backward()
             return loss
 
         optimizer.step(closure)
-        return Per
 
-    def upper_level_loss(self, img_pair, Pec, Per):
-        B, _, H, W = img_pair.shape
-        device = img_pair.device
-        A, B_mat = self.construct_A_B(H, W, device)
+        # Cheirality loss after refinement
+        loss_cheirality = self.cheirality_loss(img_pair_shape, Per, grad_dirs, normal_flow, Pec.device)
 
-        def motion_flow(pose):
-            V, W_ = pose[:, :3], pose[:, 3:]
-            AV = torch.einsum("chw,bc->bhw", A, V)
-            BW = torch.einsum("chw,bc->bhw", B_mat, W_)
-            return AV - BW  # shape: [B, H, W]
+        # Compute dL/dPer (gradient of cheirality loss wrt Per)
+        grad_cheirality = grad(loss_cheirality, Per, create_graph=True)[0]  # shape: [B, 6]
 
-        flow_coarse = motion_flow(Pec)
-        flow_refine = motion_flow(Per)
-        return F.mse_loss(flow_coarse, flow_refine)
+        return Per, grad_cheirality
+
+    #torch autograd.grad
+
+    def upper_level_loss(self, img_pair_shape, Pec, Per, n_flow_pred, g_x,device):
+        B, _, H, W = img_pair_shape
+        A, B = self.construct_A_B(H, W, device)  # Shapes: A (2, 3), B (2, 3)
+
+        # Reshape g_x to (B, H, W, 2)
+        g_x = g_x.permute(0, 2, 3, 1)  # Now shape (B, H, W, 2)
+
+        # Compute rotational and translational terms for Per (refined pose)
+        V_r, Omega_r = Per[:, :3], Per[:, 3:]  # Shapes (B, 3), (B, 3)
+        V_c, Omega_c = Pec[:, :3], Pec[:, 3:]
+
+        # Compute (g_x · B) Omega_r (derotation term, Eq. 11)
+        g_dot_B = torch.einsum("bhwc,cd->bhwd", g_x, B)  # (B, H, W, 3)
+        g_dot_B_Omega_r = torch.einsum("bhwd,bd->bhw", g_dot_B, Omega_r)  # (B, H, W)
+
+        # Compute derotated normal flow: n_x - (g_x · B) Omega_r
+        derotated_flow = n_flow_pred - g_dot_B_Omega_r
+
+        # Compute (g_x · A) V_r (translational term, Eq. 11)
+        g_dot_A = torch.einsum("bhwc,cd->bhwd", g_x, A)  # (B, H, W, 3)
+        g_dot_A_V_r = torch.einsum("bhwd,bd->bhw", g_dot_A, V_r)  # (B, H, W)
+
+        # Compute implicit depth scaling: Z_x = (g_x · A) V_r / derotated_flow
+        depth_scale = (g_dot_A_V_r / derotated_flow)  # (B, H, W)
+
+        # Compute normal flow from Pec (coarse pose)
+        g_dot_A_V_c = torch.einsum("bhwd,bd->bhw", g_dot_A, V_c)  # (B, H, W)
+        g_dot_B_Omega_c = torch.einsum("bhwd,bd->bhw", g_dot_B, Omega_c)  # (B, H, W)
+
+        # Final normal flow prediction: (g_x · A) V_c / Z_x - (g_x · B) Omega_c
+        n_flow_pred_from_pose = (g_dot_A_V_c / depth_scale) - g_dot_B_Omega_c
+
+        # Loss: MSE between NFlowNet's prediction and pose-derived normal flow
+        loss = F.mse_loss(n_flow_pred_from_pose, n_flow_pred)
+        return loss
+    
 
     def forward(self, img_pair):
+        img_pair_shape = img_pair.shape
+
         # Coarse pose from PoseNet
         Pec = self.posenet(img_pair)  # [B, 6]
+        Pec = Pec.requires_grad_(),
+
+        
+        nflow_pred = self.nflownet(img_pair)
+        gray = img_pair[:, :3].mean(1, keepdim=True)
+        grad_dirs = compute_image_gradients(gray)  # [B, 2, H, W]
 
         # Lower-level: refine using cheirality
-        Per = self.refine_pose(img_pair, Pec)
+        Per, dL_dPer = self.refine_pose(img_pair_shape, Pec, grad_dirs, nflow_pred)
+        
+        upper_loss = self.upper_level_loss(img_pair_shape, Pec, Per, nflow_pred, grad_dirs,img_pair.device)
+        
+        # ∂L_upper / ∂Pec + ∂L_upper / ∂Per * ∂Per / ∂Pec
+        dL_dPec_upper = grad(upper_loss, Pec, retain_graph=True, create_graph=True)[0]
+        dL_dPer_upper = grad(upper_loss, Per, retain_graph=True, create_graph=True)[0]
 
-        # Upper-level: compute loss to update PoseNet
-        loss = self.upper_level_loss(img_pair, Pec, Per)
+        # ∂L_total / ∂Pec = ∂L_upper / ∂Pec - dL_dPer_upper ⊙ d_cheirality_loss / d_Per
+        total_grad = dL_dPec_upper - torch.autograd.grad(dL_dPer @ dL_dPer_upper.T, Pec, retain_graph=True)[0]
 
-        return loss
+        # Kayıp gibi davranarak backward yap
+        dummy_loss = (Pec * total_grad.detach()).sum()
+        return dummy_loss
+           
