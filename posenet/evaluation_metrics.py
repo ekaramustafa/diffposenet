@@ -21,13 +21,6 @@ class TrajectoryEvaluator:
         self.align_trajectories = align_trajectories
     
     def quaternion_to_rotation_matrix(self, q: torch.Tensor) -> torch.Tensor:
-        """
-        Args:
-            q: Quaternion tensor [N, 4] in format [w, x, y, z]
-            
-        Returns:
-            Rotation matrices [N, 3, 3]
-        """
         # Normalize quaternions
         q = torch.nn.functional.normalize(q, p=2, dim=-1)
         
@@ -48,14 +41,6 @@ class TrajectoryEvaluator:
     
     def poses_to_transformation_matrices(self, translations: torch.Tensor, 
                                        quaternions: torch.Tensor) -> torch.Tensor:
-        """
-        Args:
-            translations: Translation vectors [N, 3]
-            quaternions: Quaternions [N, 4] in format [w, x, y, z]
-            
-        Returns:
-            Transformation matrices [N, 4, 4]
-        """
         batch_size = translations.shape[0]
         device = translations.device
         
@@ -70,14 +55,6 @@ class TrajectoryEvaluator:
     
     def align_trajectories_umeyama(self, pred_poses: torch.Tensor, 
                                   gt_poses: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        """
-        Args:
-            pred_poses: Predicted transformation matrices [N, 4, 4]
-            gt_poses: Ground truth transformation matrices [N, 4, 4]
-            
-        Returns:
-            Tuple of (aligned_pred_poses, transformation_matrix)
-        """
         pred_trans = pred_poses[:, :3, 3]  
         gt_trans = gt_poses[:, :3, 3]      
         
@@ -116,16 +93,6 @@ class TrajectoryEvaluator:
     
     def compute_ate(self, pred_translations: torch.Tensor, pred_quaternions: torch.Tensor,
                    gt_translations: torch.Tensor, gt_quaternions: torch.Tensor) -> Dict[str, float]:
-        """
-        Args:
-            pred_translations: Predicted translations [N, 3]
-            pred_quaternions: Predicted quaternions [N, 4] in format [w, x, y, z]
-            gt_translations: Ground truth translations [N, 3]
-            gt_quaternions: Ground truth quaternions [N, 4] in format [w, x, y, z]
-            
-        Returns:
-            Dictionary containing ATE metrics
-        """
         
         pred_poses = self.poses_to_transformation_matrices(pred_translations, pred_quaternions)
         gt_poses = self.poses_to_transformation_matrices(gt_translations, gt_quaternions)
@@ -164,17 +131,6 @@ class TrajectoryEvaluator:
     def compute_rpe(self, pred_translations: torch.Tensor, pred_quaternions: torch.Tensor,
                    gt_translations: torch.Tensor, gt_quaternions: torch.Tensor,
                    delta_t: int = 1) -> Dict[str, float]:
-        """        
-        Args:
-            pred_translations: Predicted translations [N, 3]
-            pred_quaternions: Predicted quaternions [N, 4] in format [w, x, y, z]
-            gt_translations: Ground truth translations [N, 3]
-            gt_quaternions: Ground truth quaternions [N, 4] in format [w, x, y, z]
-            delta_t: Time interval for relative pose computation
-            
-        Returns:
-            Dictionary containing RPE metrics
-        """
         n = len(pred_translations)
         m = n - delta_t
         
@@ -231,17 +187,6 @@ class TrajectoryEvaluator:
     def evaluate_trajectory(self, pred_translations: torch.Tensor, pred_quaternions: torch.Tensor,
                           gt_translations: torch.Tensor, gt_quaternions: torch.Tensor,
                           delta_t_list: List[int] = [1, 5, 10]) -> Dict[str, float]:
-        """
-        Args:
-            pred_translations: Predicted translations [N, 3]
-            pred_quaternions: Predicted quaternions [N, 4] in format [w, x, y, z]
-            gt_translations: Ground truth translations [N, 3]
-            gt_quaternions: Ground truth quaternions [N, 4] in format [w, x, y, z]
-            delta_t_list: List of time intervals for RPE computation
-            
-        Returns:
-            Dictionary containing all evaluation metrics
-        """
         results = {}
         
         # Compute ATE
@@ -277,16 +222,6 @@ class TrajectoryEvaluator:
 
 def convert_relative_to_absolute_poses(relative_translations: torch.Tensor, 
                                      relative_quaternions: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-    """
-    Args:
-        relative_translations: Relative translations [seq_len-1, 3] (transformations between consecutive poses)
-        relative_quaternions: Relative quaternions [seq_len-1, 4] in format [w, x, y, z]
-        
-    Returns:
-        Tuple of (absolute_translations, absolute_quaternions)
-        absolute_translations: [seq_len, 3] 
-        absolute_quaternions: [seq_len, 4] in format [w, x, y, z]
-    """
     rel_seq_len = relative_translations.shape[0]  # This is seq_len - 1
     abs_seq_len = rel_seq_len + 1  # Absolute poses include the initial pose
     device = relative_translations.device
@@ -320,13 +255,6 @@ def convert_relative_to_absolute_poses(relative_translations: torch.Tensor,
     return absolute_translations, absolute_quaternions
 
 def rotation_matrix_to_quaternion(R: torch.Tensor) -> torch.Tensor:
-    """
-    Args:
-        R: Rotation matrix [3, 3]
-        
-    Returns:
-        Quaternion [4] in format [w, x, y, z]
-    """
     device = R.device
     
     trace = torch.trace(R)
