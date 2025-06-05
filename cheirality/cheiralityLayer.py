@@ -93,7 +93,7 @@ class CheiralityLayer(nn.Module):
         # Compute dL/dPer (gradient of cheirality loss wrt Per)
         grad_cheirality = grad(loss_cheirality, Per, create_graph=True)[0]  # shape: [B, 6]
 
-        return Per, grad_cheirality
+        return Per.detach().requires_grad_(), grad_cheirality
 
     def upper_level_loss(self, img_pair_shape, Pec, Per, n_flow_pred, grad_dirs, device):
         B, _, H, W = img_pair_shape
@@ -127,15 +127,14 @@ class CheiralityLayer(nn.Module):
 
         # Compute denominator of depth scale: n_x - (gx · B) · Omega_r
         denom = n_flow_scalar - g_dot_B_Omega_r  # [B, H*W]
-        eps = 1e-6
-        depth_scale = g_dot_A_V_r / (denom + eps)  # [B, H*W]
+        depth_scale = g_dot_A_V_r / (denom)  # [B, H*W]
 
         # Compute terms for coarse pose Pec
         g_dot_A_V_c = torch.sum(g_dot_A * V_c.unsqueeze(1), dim=-1)  # [B, H*W]
         g_dot_B_Omega_c = torch.sum(g_dot_B * Omega_c.unsqueeze(1), dim=-1)  # [B, H*W]
 
         # Predict normal flow scalar from coarse pose Pec using depth scale
-        n_flow_pred_from_pose = (g_dot_A_V_c / (depth_scale + eps)) - g_dot_B_Omega_c  # [B, H*W]
+        n_flow_pred_from_pose = (g_dot_A_V_c / (depth_scale)) - g_dot_B_Omega_c  # [B, H*W]
 
         # Compute MSE loss between predicted scalar normal flow and model predicted scalar normal flow
         n_flow_pred_from_pose = n_flow_pred_from_pose.squeeze(1)  # now shape [1, 307200]
@@ -152,7 +151,7 @@ class CheiralityLayer(nn.Module):
         # Convert to rotation vector (axis-angle): [B * T, 3]
         rotvec_flat = kornia.geometry.quaternion_to_axis_angle(q_flat)
 
-        # Geri reshape: [B, T, 3]
+        # reshape: [B, T, 3]
         rotation = rotvec_flat.view(rotation.shape[0], rotation.shape[1], 3)
         Pec = torch.cat([translation, rotation], dim=-1) 
         
@@ -166,7 +165,6 @@ class CheiralityLayer(nn.Module):
         img_pair_shape = img_pair.shape
         # Lower-level: refine using cheirality
         Per, dL_dPer = self.refine_pose(img_pair_shape, Pec, grad_dirs, nflow_pred)
-        
         upper_loss = self.upper_level_loss(img_pair_shape, Pec, Per, nflow_pred, grad_dirs,img_pair.device)
         
         # ∂L_upper / ∂Pec + ∂L_upper / ∂Per * ∂Per / ∂Pec
