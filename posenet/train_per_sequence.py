@@ -122,7 +122,7 @@ def setup_datasets(config, logger):
     )
     
     val_dataset = TartanAirDataset(
-        root_dir="/kuacc/users/imelanlioglu21/comp447_project/tartanair_dataset/test_data/", 
+        root_dir="/kuacc/users/imelanlioglu21/comp447_project/tartanair_dataset/cvpr_data/", 
         size=config["image_size"], 
         seq_len=config["val_seq_len"],
         track_sequences=True
