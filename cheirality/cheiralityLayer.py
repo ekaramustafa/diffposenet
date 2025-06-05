@@ -3,7 +3,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import grad
 from nflownet.utils import compute_image_gradients
-
+import kornia
+import kornia_rs
 
 class CheiralityLayer(nn.Module):
     def __init__(self, posenet, nflownet):
@@ -103,15 +104,20 @@ class CheiralityLayer(nn.Module):
         # Loss: MSE between NFlowNet's prediction and pose-derived normal flow
         loss = F.mse_loss(n_flow_pred_from_pose, n_flow_pred)
         return loss
-    
 
     def forward(self, img_pair):
         img_pair_shape = img_pair.shape
 
         # Coarse pose from PoseNet
-        Pec = self.posenet(img_pair)  # [B, 6]
-        Pec = Pec.requires_grad_(),
+        translation, rotation = self.posenet(img_pair)
+        q_flat = rotation.reshape(-1, 4)
+        # Convert to rotation vector (axis-angle): [B * T, 3]
+        rotvec_flat = kornia.geometry.quaternion_to_angle_axis(q_flat)
 
+        # Geri reshape: [B, T, 3]
+        rotation = rotvec_flat.view(rotation.shape[0], rotation.shape[1], 3)
+
+        Pec = torch.cat([translation, rotation], dim=-1) 
         
         nflow_pred = self.nflownet(img_pair)
         gray = img_pair[:, :3].mean(1, keepdim=True)
