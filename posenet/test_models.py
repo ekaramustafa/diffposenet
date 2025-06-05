@@ -4,6 +4,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from dataset.tartanair import TartanAirDataset
 from torch.utils.data import DataLoader, Subset
 import logging
+from model import PoseNetDino
 
 logger = logging.getLogger(__name__)
 
@@ -77,3 +78,13 @@ val_loader = DataLoader(
     pin_memory=True,
     drop_last=False
 )
+
+posenet = PoseNetDino(model_size="base", freeze_dino=True)
+
+for batch in train_loader:
+    images, translations, quaternions = batch
+    t_pred, r_pred = posenet(images)
+    print(t_pred.shape, r_pred.shape)
+    loss, translation_loss, rotation_loss = posenet.pose_loss(t_pred, r_pred, translations, quaternions)
+    print(loss, translation_loss, rotation_loss)
+    break

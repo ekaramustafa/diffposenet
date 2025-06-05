@@ -1,6 +1,7 @@
 import torch
 import numpy as np
 from scipy.spatial.transform import Rotation as R
+from torch.nn import functional as F
 from typing import Tuple, Dict, List, Optional
 import logging
 
@@ -12,7 +13,7 @@ class TrajectoryEvaluator:
     - Relative Pose Error (RPE): Equations 18-19 from the paper
     """
     
-    def __init__(self, align_trajectories: bool = False):
+    def __init__(self, align_trajectories: bool = True):
         """
         Args:
             align_trajectories: Whether to align predicted and ground truth trajectories
@@ -20,32 +21,11 @@ class TrajectoryEvaluator:
         """
         self.align_trajectories = align_trajectories
     
-    def quaternion_to_rotation_matrix(self, q: torch.Tensor) -> torch.Tensor:
-        # Normalize quaternions
-        q = torch.nn.functional.normalize(q, p=2, dim=-1)
-        
-        w, x, y, z = q[..., 0], q[..., 1], q[..., 2], q[..., 3]
-        
-        # Compute rotation matrix elements
-        xx, yy, zz = x*x, y*y, z*z
-        xy, xz, yz = x*y, x*z, y*z
-        wx, wy, wz = w*x, w*y, w*z
-        
-        R = torch.stack([
-            torch.stack([1 - 2*(yy + zz), 2*(xy - wz), 2*(xz + wy)], dim=-1),
-            torch.stack([2*(xy + wz), 1 - 2*(xx + zz), 2*(yz - wx)], dim=-1),
-            torch.stack([2*(xz - wy), 2*(yz + wx), 1 - 2*(xx + yy)], dim=-1)
-        ], dim=-2)
-        
-        return R
-    
     def poses_to_transformation_matrices(self, translations: torch.Tensor, 
-                                       quaternions: torch.Tensor) -> torch.Tensor:
+                                       R: torch.Tensor) -> torch.Tensor:
         batch_size = translations.shape[0]
         device = translations.device
-        
-        R = self.quaternion_to_rotation_matrix(quaternions)  # [N, 3, 3]
-        
+                
         T = torch.zeros(batch_size, 4, 4, device=device)
         T[:, :3, :3] = R
         T[:, :3, 3] = translations
@@ -91,11 +71,10 @@ class TrajectoryEvaluator:
         
         return aligned_pred_poses, S_torch
     
-    def compute_ate(self, pred_translations: torch.Tensor, pred_quaternions: torch.Tensor,
-                   gt_translations: torch.Tensor, gt_quaternions: torch.Tensor) -> Dict[str, float]:
-        
-        pred_poses = self.poses_to_transformation_matrices(pred_translations, pred_quaternions)
-        gt_poses = self.poses_to_transformation_matrices(gt_translations, gt_quaternions)
+    def compute_ate(self, pred_translations: torch.Tensor, pred_rotations: torch.Tensor,
+                   gt_translations: torch.Tensor, gt_rotations: torch.Tensor) -> Dict[str, float]:
+        pred_poses = self.poses_to_transformation_matrices(pred_translations, pred_rotations)
+        gt_poses = self.poses_to_transformation_matrices(gt_translations, gt_rotations)
         
         if self.align_trajectories:
             aligned_pred_poses, alignment_transform = self.align_trajectories_umeyama(pred_poses, gt_poses)
@@ -128,8 +107,8 @@ class TrajectoryEvaluator:
             'num_poses': len(translation_errors)
         }
     
-    def compute_rpe(self, pred_translations: torch.Tensor, pred_quaternions: torch.Tensor,
-                   gt_translations: torch.Tensor, gt_quaternions: torch.Tensor,
+    def compute_rpe(self, pred_translations: torch.Tensor, pred_rotations: torch.Tensor,
+                   gt_translations: torch.Tensor, gt_rotations: torch.Tensor,
                    delta_t: int = 1) -> Dict[str, float]:
         n = len(pred_translations)
         m = n - delta_t
@@ -138,8 +117,8 @@ class TrajectoryEvaluator:
             logger.warning(f"Not enough poses for RPE computation with delta_t={delta_t}")
             return {'RPE_trans': 0.0, 'RPE_rot': 0.0, 'num_relative_poses': 0}
         
-        pred_poses = self.poses_to_transformation_matrices(pred_translations, pred_quaternions)
-        gt_poses = self.poses_to_transformation_matrices(gt_translations, gt_quaternions)
+        pred_poses = self.poses_to_transformation_matrices(pred_translations, pred_rotations)
+        gt_poses = self.poses_to_transformation_matrices(gt_translations, gt_rotations)
         
         relative_errors = []
         
@@ -184,15 +163,15 @@ class TrajectoryEvaluator:
             'delta_t': delta_t
         }
     
-    def evaluate_trajectory(self, pred_translations: torch.Tensor, pred_quaternions: torch.Tensor,
-                          gt_translations: torch.Tensor, gt_quaternions: torch.Tensor,
+    def evaluate_trajectory(self, pred_translations: torch.Tensor, pred_rotations: torch.Tensor,
+                          gt_translations: torch.Tensor, gt_rotations: torch.Tensor,
                           delta_t_list: List[int] = [1, 5, 10]) -> Dict[str, float]:
         results = {}
         
         # Compute ATE
         try:
-            ate_results = self.compute_ate(pred_translations, pred_quaternions,
-                                         gt_translations, gt_quaternions)
+            ate_results = self.compute_ate(pred_translations, pred_rotations,
+                                         gt_translations, gt_rotations)
             results.update(ate_results)
             logger.info(f"ATE RMSE: {ate_results['ATE_RMSE']:.4f}")
         except Exception as e:
@@ -202,8 +181,8 @@ class TrajectoryEvaluator:
         # Compute RPE for different time intervals
         for delta_t in delta_t_list:
             try:
-                rpe_results = self.compute_rpe(pred_translations, pred_quaternions,
-                                             gt_translations, gt_quaternions, delta_t)
+                rpe_results = self.compute_rpe(pred_translations, pred_rotations,
+                                             gt_translations, gt_rotations, delta_t)
                 # Add delta_t suffix to keys
                 for key, value in rpe_results.items():
                     if key != 'delta_t':
@@ -221,71 +200,59 @@ class TrajectoryEvaluator:
         return results
 
 def convert_relative_to_absolute_poses(relative_translations: torch.Tensor, 
-                                     relative_quaternions: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+                                     relative_rotations: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Convert relative poses to absolute poses.
+    
+    Args:
+        relative_translations: [seq_len-1, 3] relative translations
+        relative_rotations: [seq_len-1, 3, 3] relative rotation matrices
+        
+    Returns:
+        absolute_translations: [seq_len, 3] absolute translations
+        absolute_rotations: [seq_len, 3, 3] absolute rotation matrices
+    """
     rel_seq_len = relative_translations.shape[0]  # This is seq_len - 1
     abs_seq_len = rel_seq_len + 1  # Absolute poses include the initial pose
     device = relative_translations.device
     
     absolute_translations = torch.zeros(abs_seq_len, 3, device=device)
-    absolute_quaternions = torch.zeros(abs_seq_len, 4, device=device)
+    absolute_rotations = torch.zeros(abs_seq_len, 3, 3, device=device)
     
+    # Initialize with identity pose
     absolute_translations[0] = torch.zeros(3, device=device)
-    absolute_quaternions[0] = torch.tensor([1.0, 0.0, 0.0, 0.0], device=device)  # Identity quaternion
+    absolute_rotations[0] = torch.eye(3, device=device)  # Identity rotation matrix
     
-    evaluator = TrajectoryEvaluator()
-    
+    # Start with identity transformation
     current_transformation = torch.eye(4, device=device)
     
     for i in range(rel_seq_len):
         rel_t = relative_translations[i]  # [3]
-        rel_q = relative_quaternions[i]   # [4]
+        rel_R = relative_rotations[i]     # [3, 3]
         
-        rel_transform = evaluator.poses_to_transformation_matrices(
-            rel_t.unsqueeze(0), rel_q.unsqueeze(0)
-        ).squeeze(0)  # [4, 4]
+        # Create relative transformation matrix
+        rel_transform = torch.eye(4, device=device)
+        rel_transform[:3, :3] = rel_R
+        rel_transform[:3, 3] = rel_t
         
+        # Accumulate transformation
         current_transformation = torch.matmul(current_transformation, rel_transform)
         
+        # Extract absolute pose
         absolute_translations[i + 1] = current_transformation[:3, 3]
-        
-        rot_matrix = current_transformation[:3, :3]
-        abs_q = rotation_matrix_to_quaternion(rot_matrix)
-        absolute_quaternions[i + 1] = abs_q
+        absolute_rotations[i + 1] = current_transformation[:3, :3]
     
-    return absolute_translations, absolute_quaternions
+    return absolute_translations, absolute_rotations
 
-def rotation_matrix_to_quaternion(R: torch.Tensor) -> torch.Tensor:
-    device = R.device
-    
-    trace = torch.trace(R)
-    
-    if trace > 0:
-        s = torch.sqrt(trace + 1.0) * 2  # s = 4 * qw
-        qw = 0.25 * s
-        qx = (R[2, 1] - R[1, 2]) / s
-        qy = (R[0, 2] - R[2, 0]) / s
-        qz = (R[1, 0] - R[0, 1]) / s
-    elif R[0, 0] > R[1, 1] and R[0, 0] > R[2, 2]:
-        s = torch.sqrt(1.0 + R[0, 0] - R[1, 1] - R[2, 2]) * 2  # s = 4 * qx
-        qw = (R[2, 1] - R[1, 2]) / s
-        qx = 0.25 * s
-        qy = (R[0, 1] + R[1, 0]) / s
-        qz = (R[0, 2] + R[2, 0]) / s
-    elif R[1, 1] > R[2, 2]:
-        s = torch.sqrt(1.0 + R[1, 1] - R[0, 0] - R[2, 2]) * 2  # s = 4 * qy
-        qw = (R[0, 2] - R[2, 0]) / s
-        qx = (R[0, 1] + R[1, 0]) / s
-        qy = 0.25 * s
-        qz = (R[1, 2] + R[2, 1]) / s
-    else:
-        s = torch.sqrt(1.0 + R[2, 2] - R[0, 0] - R[1, 1]) * 2  # s = 4 * qz
-        qw = (R[1, 0] - R[0, 1]) / s
-        qx = (R[0, 2] + R[2, 0]) / s
-        qy = (R[1, 2] + R[2, 1]) / s
-        qz = 0.25 * s
-    
-    quaternion = torch.tensor([qw, qx, qy, qz], device=device)
-    
-    quaternion = torch.nn.functional.normalize(quaternion, p=2, dim=0)
-    
-    return quaternion
+
+def rotation_6d_to_matrix(d6):
+    """
+    Convert 6D rotation representation to rotation matrix
+    More stable than quaternions for neural network training
+    """
+    a1, a2 = d6[..., :3], d6[..., 3:]
+    b1 = F.normalize(a1, dim=-1)
+    b2 = a2 - (b1 * a2).sum(dim=-1, keepdim=True) * b1
+    b2 = F.normalize(b2, dim=-1)
+    b3 = torch.cross(b1, b2, dim=-1)
+    return torch.stack([b1, b2, b3], dim=-2)

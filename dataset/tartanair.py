@@ -5,6 +5,8 @@ from torch.utils.data import Dataset
 from torchvision import transforms
 from PIL import Image
 import logging
+from scipy.spatial.transform import Rotation as R
+from scipy.linalg import logm
 
 logger = logging.getLogger(__name__)
 
@@ -149,7 +151,7 @@ class TartanAirDataset(Dataset):
         return self.sequence_names.copy()
 
     def __len__(self):
-        return len(self.image_files) - (self.seq_len - 1) * self.skip
+        return len(self.poses) - (self.seq_len - 1) * self.skip
 
     def __getitem__(self, idx):
         image_seq = []
@@ -181,24 +183,45 @@ class TartanAirDataset(Dataset):
             return image_seq, translations, rotations
 
     def _compute_relative_pose(self, pose1, pose2):
-        t1 = np.array(pose1[:3])
-        q1 = np.array(pose1[3:])
-        t2 = np.array(pose2[:3])
-        q2 = np.array(pose2[3:])
+        return self.compute_velocity_twist(pose1, pose2, 1)
 
-        q1 = q1 / np.linalg.norm(q1)
-        q2 = q2 / np.linalg.norm(q2)
+    def compute_velocity_twist(self, pose_t, pose_tp1, dt=1):
+        """
+        Computes V and Omega (angular velocity vector) from two SE(3) poses.
 
-        q1_inv = np.array([-q1[0], -q1[1], -q1[2], q1[3]])
-        q_rel = self._quaternion_multiply(q2, q1_inv)
-        q_rel = q_rel / np.linalg.norm(q_rel)
-        assert np.allclose(np.linalg.norm(q1), 1.0, atol=1e-6)
-        assert np.allclose(np.linalg.norm(q2), 1.0, atol=1e-6)
+        pose_t, pose_tp1: arrays of shape (7,)
+            Each pose is [tx, ty, tz, qx, qy, qz, qw] — position + quaternion
+        dt: float
+            Time difference between the two poses
 
-        R1 = self._quaternion_to_rotation_matrix(q1)
-        t_rel = np.dot(R1.T, (t2 - t1))
+        Returns:
+            V: (3,) linear velocity vector
+            Omega: (3,) angular velocity vector
+        """
+        # Extract translations
+        T_t = np.array(pose_t[:3])
+        T_tp1 = np.array(pose_tp1[:3])
+        V = (T_tp1 - T_t) / dt
 
-        return torch.from_numpy(t_rel).float(), torch.from_numpy(q_rel).float()
+        # Extract rotation matrices
+        R_t = R.from_quat(pose_t[3:]).as_matrix()
+        R_tp1 = R.from_quat(pose_tp1[3:]).as_matrix()
+
+        # Compute relative rotation
+        R_rel = R_t.T @ R_tp1
+
+        # Matrix log to get skew-symmetric angular velocity
+        Omega_x = logm(R_rel) / dt
+
+        # Extract angular velocity vector from skew-symmetric matrix
+        # Omega = np.array([
+        #     Omega_x[2,1],  # wx
+        #     Omega_x[0,2],  # wy
+        #     Omega_x[1,0]   # wz
+        # ])
+        Omega = Omega_x
+
+        return torch.from_numpy(V).float(), torch.from_numpy(Omega).float()
     
     def _quaternion_multiply(self, q1, q2):
         x1, y1, z1, w1 = q1

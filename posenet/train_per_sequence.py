@@ -48,17 +48,19 @@ def get_experiment_configs():
         "num_layers": 2,
         "dropout": 0.3,
         
-        "learning_rate": 1e-5,
+        "learning_rate": 1e-4,  # Base learning rate for backbone and LSTM
+        "translation_lr": 1e-4,  # Higher learning rate for translation head
+        "rotation_lr": 1e-4,     # Learning rate for rotation head
         "batch_size": 8,
-        "epochs": 30,
-        "train_seq_len": 6,
-        "val_seq_len": 6,
+        "epochs": 100,
+        "train_seq_len": 2,
+        "val_seq_len": 2,
         "image_size": (224, 224),
         "num_workers": 4,
         "weight_decay": 1e-4,
         "skip": 1,
         
-        "lambda_q": 0.001, # balance factor between translation and quaternion loss
+        "lambda_q": 0.001,
         
         # we do not use lr scheduler in this experiment
         # "lr_scheduler": "cosine",
@@ -71,27 +73,27 @@ def get_experiment_configs():
         "save_every": 5, # save model every 5 epochs
         "eval_every": 1, # evaluate model every 1 epoch
         
-        "train_subset_ratio": 0.5, # train on 100% of the data
+        "train_subset_ratio": 1, # train on 100% of the data
         "val_subset_ratio": 1, # val on 100% of the data
         
-        "evaluate_per_sequence": True, # evaluate per sequence
+        "evaluate_per_sequence": False, # evaluate per sequence
     }
     
     configs = [
-        {
-            **base_config,
-            "backbone": "dino_improved",
-            "freeze": True,
-            "experiment_name": "hospital_dino_improved_frozen",
-            "model_size": "base"
-        },
         # {
         #     **base_config,
-        #     "backbone": "dino",
+        #     "backbone": "dino_improved",
         #     "freeze": True,
-        #     "experiment_name": "dino",
+        #     "experiment_name": "hospital_dino_improved_frozen",
         #     "model_size": "base"
         # },
+        {
+            **base_config,
+            "backbone": "dino",
+            "freeze": True,
+            "experiment_name": "default_dino_diff_lr",
+            "model_size": "base"
+        },
         # {
         #     **base_config,
         #     "backbone": "vgg16",
@@ -116,22 +118,22 @@ def setup_datasets(config, logger):
         size=config["image_size"], 
         seq_len=config["train_seq_len"],
         track_sequences=False,
-        skip=config["skip"]
+        # skip=config["skip"]
     )
     
-    # val_dataset = TartanAirDataset(
-    #     root_dir="/kuacc/users/imelanlioglu21/comp447_project/tartanair_dataset/cvpr_data/", 
-    #     size=config["image_size"], 
-    #     seq_len=config["val_seq_len"],
-    #     track_sequences=True
-    # )
-
     val_dataset = TartanAirDataset(
         root_dir="/kuacc/users/imelanlioglu21/comp447_project/tartanair_dataset/test_data/", 
         size=config["image_size"], 
         seq_len=config["val_seq_len"],
         track_sequences=True
     )
+
+    # val_dataset = TartanAirDataset(
+    #     root_dir="/kuacc/users/imelanlioglu21/comp447_project/tartanair_dataset/test_data/", 
+    #     size=config["image_size"], 
+    #     seq_len=config["val_seq_len"],
+    #     track_sequences=True
+    # )
     
     # Create subsets for faster training
     train_size = int(len(train_dataset) * config["train_subset_ratio"])
@@ -192,28 +194,74 @@ def setup_model_and_optimizer(config, logger):
     
     logger.info(f"Model parameters: {sum(p.numel() for p in pose_net.parameters() if p.requires_grad):,}")
     
+    # Create parameter groups with different learning rates
+    translation_params = []
+    rotation_params = []
+    other_params = []
+    
+    # Identify translation and rotation head parameters
+    for name, param in pose_net.named_parameters():
+        if not param.requires_grad:
+            continue
+            
+        # Handle both naming conventions: translation_fc/rotation_fc and translation_head/rotation_head
+        if any(keyword in name.lower() for keyword in ['translation_fc', 'translation_head']):
+            translation_params.append(param)
+            logger.info(f"Translation parameter: {name}")
+        elif any(keyword in name.lower() for keyword in ['rotation_fc', 'rotation_head']):
+            rotation_params.append(param)
+            logger.info(f"Rotation parameter: {name}")
+        else:
+            other_params.append(param)
+    
+    # Create parameter groups
+    param_groups = [
+        {
+            'params': other_params,
+            'lr': config["learning_rate"],
+            'name': 'backbone_lstm'
+        },
+        {
+            'params': translation_params,
+            'lr': config["translation_lr"],
+            'name': 'translation_head'
+        },
+        {
+            'params': rotation_params,
+            'lr': config["rotation_lr"],
+            'name': 'rotation_head'
+        }
+    ]
+    
+    param_groups = [group for group in param_groups if len(group['params']) > 0]
+    
     optimizer = optim.AdamW(
-        pose_net.parameters(), 
-        lr=config["learning_rate"],
+        param_groups,
         weight_decay=config["weight_decay"]
     )
     
+    # Log parameter group information
+    logger.info("Parameter groups:")
+    for i, group in enumerate(optimizer.param_groups):
+        num_params = sum(p.numel() for p in group['params'])
+        logger.info(f"  Group {i} ({group['name']}): {num_params:,} parameters, LR: {group['lr']:.2e}")
+    
     return pose_net, optimizer
 
-def compute_sequence_ate_metrics(pred_translations, pred_quaternions, gt_translations, gt_quaternions, sequence_names, evaluator):
+def compute_sequence_ate_metrics(pred_translations, pred_rotations, gt_translations, gt_rotations, sequence_names, evaluator):
     sequence_data = defaultdict(lambda: {
         'pred_translations': [],
-        'pred_quaternions': [],
+        'pred_rotations': [],
         'gt_translations': [],
-        'gt_quaternions': []
+        'gt_rotations': []
     })
     
     for i, seq_name in enumerate(sequence_names):
         if seq_name and seq_name != 'unknown':
             sequence_data[seq_name]['pred_translations'].append(pred_translations[i])
-            sequence_data[seq_name]['pred_quaternions'].append(pred_quaternions[i])
+            sequence_data[seq_name]['pred_rotations'].append(pred_rotations[i])
             sequence_data[seq_name]['gt_translations'].append(gt_translations[i])
-            sequence_data[seq_name]['gt_quaternions'].append(gt_quaternions[i])
+            sequence_data[seq_name]['gt_rotations'].append(gt_rotations[i]) 
     
     per_sequence_metrics = {}
     all_ate_values = []
@@ -222,11 +270,11 @@ def compute_sequence_ate_metrics(pred_translations, pred_quaternions, gt_transla
         if len(data['pred_translations']) > 0:
             try:
                 seq_pred_t = torch.stack(data['pred_translations'])
-                seq_pred_q = torch.stack(data['pred_quaternions'])
+                seq_pred_r = torch.stack(data['pred_rotations'])
                 seq_gt_t = torch.stack(data['gt_translations'])
-                seq_gt_q = torch.stack(data['gt_quaternions'])
+                seq_gt_r = torch.stack(data['gt_rotations'])
                 
-                ate_metrics = evaluator.compute_ate(seq_pred_t, seq_pred_q, seq_gt_t, seq_gt_q)
+                ate_metrics = evaluator.compute_ate(seq_pred_t, seq_pred_r, seq_gt_t, seq_gt_r)
                 per_sequence_metrics[seq_name] = ate_metrics
                 all_ate_values.append(ate_metrics['ATE_RMSE'])
                 
@@ -275,7 +323,7 @@ def train_epoch(pose_net, train_loader, optimizer, accelerator, config, epoch, l
     epoch_metrics = {
         'total_loss': 0.0,
         'translation_loss': 0.0,
-        'quaternion_loss': 0.0,
+        'rotation_loss': 0.0,
     }
     
     if accelerator.is_local_main_process:
@@ -313,7 +361,7 @@ def train_epoch(pose_net, train_loader, optimizer, accelerator, config, epoch, l
         
         epoch_metrics['total_loss'] += loss_dict['total_loss']
         epoch_metrics['translation_loss'] += loss_dict['translation_loss']
-        epoch_metrics['quaternion_loss'] += loss_dict['quaternion_loss']
+        epoch_metrics['rotation_loss'] += loss_dict['rotation_loss']
         num_batches += 1
         
         if accelerator.is_local_main_process:
@@ -330,13 +378,13 @@ def validate_epoch(pose_net, val_loader, accelerator, config, epoch, trajectory_
     val_metrics = {
         'total_loss': 0.0,
         'translation_loss': 0.0,
-        'quaternion_loss': 0.0,
+        'rotation_loss': 0.0,
     }
     
     all_pred_translations = []
-    all_pred_quaternions = []
+    all_pred_rotations = []
     all_gt_translations = []
-    all_gt_quaternions = []
+    all_gt_rotations = []
     all_sequence_names = []
     
     if accelerator.is_local_main_process:
@@ -366,7 +414,7 @@ def validate_epoch(pose_net, val_loader, accelerator, config, epoch, trajectory_
             
             val_metrics['total_loss'] += loss_dict['total_loss']
             val_metrics['translation_loss'] += loss_dict['translation_loss']
-            val_metrics['quaternion_loss'] += loss_dict['quaternion_loss']
+            val_metrics['rotation_loss'] += loss_dict['rotation_loss']
             
             for b in range(batch_size):
                 try:
@@ -378,9 +426,9 @@ def validate_epoch(pose_net, val_loader, accelerator, config, epoch, trajectory_
                     )
                     
                     all_pred_translations.append(abs_t_pred)
-                    all_pred_quaternions.append(abs_q_pred)
+                    all_pred_rotations.append(abs_q_pred)
                     all_gt_translations.append(abs_t_gt)
-                    all_gt_quaternions.append(abs_q_gt)
+                    all_gt_rotations.append(abs_q_gt)
                     
                     if sequence_names is not None:
                         if isinstance(sequence_names[b], str):
@@ -406,15 +454,15 @@ def validate_epoch(pose_net, val_loader, accelerator, config, epoch, trajectory_
     if all_pred_translations and accelerator.is_main_process and config["evaluate_per_sequence"]:
         try:
             pred_translations_tensor = torch.cat(all_pred_translations, dim=0)
-            pred_quaternions_tensor = torch.cat(all_pred_quaternions, dim=0)
+            pred_rotations_tensor = torch.cat(all_pred_rotations, dim=0)
             gt_translations_tensor = torch.cat(all_gt_translations, dim=0)
-            gt_quaternions_tensor = torch.cat(all_gt_quaternions, dim=0)
+            gt_rotations_tensor = torch.cat(all_gt_rotations, dim=0)
             
             logger.info(f"Evaluating trajectory with {len(pred_translations_tensor)} poses across sequences")
             
             sequence_metrics = compute_sequence_ate_metrics(
-                pred_translations_tensor, pred_quaternions_tensor,
-                gt_translations_tensor, gt_quaternions_tensor,
+                pred_translations_tensor, pred_rotations_tensor,
+                gt_translations_tensor, gt_rotations_tensor,
                 all_sequence_names, trajectory_evaluator
             )
             
@@ -444,7 +492,7 @@ def validate_epoch(pose_net, val_loader, accelerator, config, epoch, trajectory_
 def save_and_log_results(pose_net, accelerator, config, final_sequence_metrics, train_losses, val_losses, logger, timestamp):
     if accelerator.is_main_process:
         unwrapped_model = accelerator.unwrap_model(pose_net)
-        model_path = f"pose_net_improved_per_sequence_{config['experiment_name']}_final.pth"
+        model_path = f"ebu/{config['experiment_name']}/pose_net_per_sequence_final.pth"
         torch.save(unwrapped_model, model_path)
         
         if final_sequence_metrics and config["evaluate_per_sequence"]:
@@ -465,7 +513,7 @@ def save_and_log_results(pose_net, accelerator, config, final_sequence_metrics, 
             logger.info(f"  Max ATE: {agg_metrics.get('ATE_max_across_sequences', 'N/A'):.4f}")
             logger.info(f"  Valid sequences: {agg_metrics.get('num_valid_sequences', 0)}/{agg_metrics.get('num_total_sequences', 0)}")
             
-            final_metrics_path = f"ebu/improved_posenet_per_seq/final_metrics_{config['experiment_name']}_{timestamp}.json"
+            final_metrics_path = f"ebu/{config['experiment_name']}/final_metrics_{timestamp}.json"
             with open(final_metrics_path, 'w') as f:
                 json.dump(final_sequence_metrics, f, indent=2, default=str)
             logger.info(f"Final metrics saved to: {final_metrics_path}")
@@ -486,9 +534,13 @@ def save_and_log_results(pose_net, accelerator, config, final_sequence_metrics, 
         
         plt.figure(figsize=(15, 5))
         
+        # Convert CUDA tensors to CPU for plotting
+        train_losses_cpu = [loss.cpu().item() if torch.is_tensor(loss) else loss for loss in train_losses]
+        val_losses_cpu = [loss.cpu().item() if torch.is_tensor(loss) else loss for loss in val_losses]
+        
         plt.subplot(1, 3, 1)
-        plt.plot(range(1, len(train_losses) + 1), train_losses, label="Train Loss", marker='o')
-        plt.plot(range(1, len(val_losses) + 1), val_losses, label="Validation Loss", marker='s')
+        plt.plot(range(1, len(train_losses_cpu) + 1), train_losses_cpu, label="Train Loss", marker='o')
+        plt.plot(range(1, len(val_losses_cpu) + 1), val_losses_cpu, label="Validation Loss", marker='s')
         plt.xlabel("Epoch")
         plt.ylabel("Loss")
         plt.title("Training and Validation Loss")
@@ -496,8 +548,8 @@ def save_and_log_results(pose_net, accelerator, config, final_sequence_metrics, 
         plt.grid(True)
         
         plt.subplot(1, 3, 2)
-        plt.plot(range(1, len(train_losses) + 1), train_losses, label="Train Loss", marker='o')
-        plt.plot(range(1, len(val_losses) + 1), val_losses, label="Validation Loss", marker='s')
+        plt.plot(range(1, len(train_losses_cpu) + 1), train_losses_cpu, label="Train Loss", marker='o')
+        plt.plot(range(1, len(val_losses_cpu) + 1), val_losses_cpu, label="Validation Loss", marker='s')
         plt.xlabel("Epoch")
         plt.ylabel("Loss (Log Scale)")
         plt.title("Training and Validation Loss (Log Scale)")
@@ -525,7 +577,7 @@ def save_and_log_results(pose_net, accelerator, config, final_sequence_metrics, 
             plt.title("Final ATE per Sequence")
         
         plt.tight_layout()
-        plot_path = f"training_curves_per_sequence_{config['experiment_name']}.png"
+        plot_path = f"ebu/{config['experiment_name']}/training_curves_per_sequence.png"
         plt.savefig(plot_path, dpi=300, bbox_inches='tight')
         
         wandb.log({"training_curves": wandb.Image(plot_path)})
@@ -544,7 +596,7 @@ def run_experiment(config):
         gradient_accumulation_steps=1,
         mixed_precision="fp16",
         log_with="wandb",
-        kwargs_handlers=[ddp_kwargs]
+        # kwargs_handlers=[ddp_kwargs]
     )
     
     logger = setup_logging(accelerator)
@@ -567,7 +619,7 @@ def run_experiment(config):
     train_loader, val_loader = setup_datasets(config, logger)
     pose_net, optimizer = setup_model_and_optimizer(config, logger)
     
-    trajectory_evaluator = TrajectoryEvaluator(align_trajectories=True)
+    trajectory_evaluator = TrajectoryEvaluator(align_trajectories=False)
     
     pose_net, optimizer, train_loader, val_loader = accelerator.prepare(
         pose_net, optimizer, train_loader, val_loader
@@ -600,17 +652,21 @@ def run_experiment(config):
         if accelerator.is_main_process:
             log_dict = {
                 "epoch": epoch + 1,
-                "learning_rate": optimizer.param_groups[0]['lr'],
                 "train/total_loss": epoch_metrics['total_loss'],
                 "train/translation_loss": epoch_metrics['translation_loss'],
-                "train/quaternion_loss": epoch_metrics['quaternion_loss'],
+                "train/rotation_loss": epoch_metrics['rotation_loss'],
             }
+            
+            # Log learning rates for all parameter groups
+            for i, group in enumerate(optimizer.param_groups):
+                group_name = group.get('name', f'group_{i}')
+                log_dict[f"learning_rate/{group_name}"] = group['lr']
             
             if (epoch + 1) % config["eval_every"] == 0:
                 log_dict.update({
                     "val/total_loss": val_metrics['total_loss'],
                     "val/translation_loss": val_metrics['translation_loss'],
-                    "val/quaternion_loss": val_metrics['quaternion_loss'],
+                    "val/rotation_loss": val_metrics['rotation_loss'],
                 })
                 
                 if sequence_metrics and config["evaluate_per_sequence"]:
@@ -632,11 +688,17 @@ def run_experiment(config):
             
             wandb.log(log_dict)
             
+            # Create a more detailed learning rate display for console logging
+            lr_display = []
+            for group in optimizer.param_groups:
+                group_name = group.get('name', f'group_{len(lr_display)}')
+                lr_display.append(f"{group_name}: {group['lr']:.2e}")
+            
             log_message = (
                 f"Epoch {epoch+1}/{config['epochs']} - "
                 f"Train Loss: {epoch_metrics['total_loss']:.6f} - "
                 f"Val Loss: {val_metrics['total_loss']:.6f} - "
-                f"LR: {optimizer.param_groups[0]['lr']:.2e}"
+                f"LR ({', '.join(lr_display)})"
             )
             
             if sequence_metrics and (epoch + 1) % config["eval_every"] == 0 and config["evaluate_per_sequence"]:

@@ -11,29 +11,15 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
-def main():
-    logger.info("Starting TartanAir dataset test")
-    
-    logger.info("Loading training dataset...")
-    train_dataset = TartanAirDataset(
-        root_dir="/kuacc/users/imelanlioglu21/comp447_project/tartanair_dataset/train_data/", 
-        size=(224, 224), 
-        seq_len=2,
-        track_sequences=False  # No need for training
-    )
+logger.info("Starting TartanAir dataset test")
 
-    logger.info("Loading validation dataset...")
-    val_dataset = TartanAirDataset(
-        root_dir="/kuacc/users/imelanlioglu21/comp447_project/tartanair_dataset/cvpr_data/", 
-        size=(224, 224), 
-        seq_len=2,
-        track_sequences=True  # Enable for per-sequence evaluation
-    )
-    
-    logger.info(f"Train dataset size: {len(train_dataset)}")
-    logger.info(f"Validation dataset size: {len(val_dataset)}")
-    
+logger.info("Loading training dataset...")
+train_dataset = TartanAirDataset(
+    root_dir="/kuacc/users/imelanlioglu21/comp447_project/tartanair_dataset/train_data/", 
+    size=(224, 224), 
+    seq_len=2,
+    track_sequences=False  # No need for training
+)
 
-if __name__ == "__main__":
-    main()
-
+image, translation, rotation = next(iter(train_dataset))
+print(image.shape, translation.shape, rotation.shape)

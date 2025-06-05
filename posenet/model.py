@@ -24,7 +24,7 @@ class PoseNet(nn.Module):
         # self.pose_fc = nn.Linear(self.hidden_dim, 7)
         # Separate network heads for translation and rotation
         self.translation_fc = nn.Linear(self.hidden_dim, 3)
-        self.rotation_fc = nn.Linear(self.hidden_dim, 4)
+        self.rotation_fc = nn.Linear(self.hidden_dim, 3)
 
         # uncertainty parameters
         # self.log_var_t = nn.Parameter(torch.zeros(1))
@@ -55,24 +55,19 @@ class PoseNet(nn.Module):
 
         return t, q
 
-    def pose_loss(self, t_pred, q_pred, t_gt, q_gt, lambda_q=0.01):
-        loss_t = F.mse_loss(t_pred, t_gt.squeeze(1))
-        loss_q = self.quaternion_loss(q_pred = q_pred, q_gt = q_gt)
-        return loss_t + lambda_q * loss_q,  {
-            'translation_loss': loss_t.item(),
-            'quaternion_loss': loss_q.item(),
-            'total_loss': (loss_t + lambda_q * loss_q).item()
-        }
+    def pose_loss(self, t_pred, r_pred, t_gt, r_gt, lambda_t=1, lambda_q=0.001):
+
+        translation_loss = torch.nn.functional.mse_loss(t_pred, t_gt)
     
-    def quaternion_loss(self, q_pred, q_gt):
-        q_pred = F.normalize(q_pred, p=2, dim=2)
-        q_gt = F.normalize(q_gt, p=2, dim=2)
+        rotation_loss = torch.nn.functional.mse_loss(r_pred, r_gt)
+                
+        total_loss = translation_loss * lambda_t + rotation_loss * lambda_q  # or with different weights
         
-        dot = torch.sum(q_pred * q_gt, dim=2)
-        dot = torch.clamp(dot, -1.0, 1.0)
-        
-        loss = 1.0 - torch.abs(dot)
-        return torch.mean(loss)
+        return total_loss, {
+            'translation_loss': translation_loss,
+            'rotation_loss': rotation_loss,
+            'total_loss': total_loss
+        }
 
 
 class PoseNetDino(PoseNet):
@@ -101,33 +96,29 @@ class PoseNetDino(PoseNet):
                           num_layers=3, batch_first=True, dropout=0.3, bidirectional=True)
 
         # Separate network heads for translation and rotation
-        # self.pose_fc = nn.Linear(self.hidden_dim, 7)
-        # self.translation_fc = nn.Linear(self.hidden_dim, 3)
-        # self.rotation_fc = nn.Linear(self.hidden_dim, 4)
-
+        # Account for bidirectional LSTM output (hidden_dim * 2)
+        lstm_output_dim = self.hidden_dim * 2
+        
         self.translation_fc = nn.Sequential(
+            nn.Linear(lstm_output_dim, self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.3),
             nn.Linear(self.hidden_dim, self.hidden_dim // 2),
             nn.ReLU(),
             nn.Dropout(0.3),
-            nn.Linear(self.hidden_dim // 2, self.hidden_dim // 4),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(self.hidden_dim // 4, 3)
+            nn.Linear(self.hidden_dim // 2, 3)
         )
         
         self.rotation_fc = nn.Sequential(
+            nn.Linear(lstm_output_dim, self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.3),
             nn.Linear(self.hidden_dim, self.hidden_dim // 2),
             nn.ReLU(),
             nn.Dropout(0.3),
-            nn.Linear(self.hidden_dim // 2, self.hidden_dim // 4),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(self.hidden_dim // 4, 4)
+            nn.Linear(self.hidden_dim // 2, 6)
         )
 
-        # uncertainty parameters
-        # self.log_var_t = nn.Parameter(torch.zeros(1))
-        # self.log_var_q = nn.Parameter(torch.zeros(1))
 
     def extract_cls_token(self, x):
         if self.dinov2.training and not self.training:
@@ -149,16 +140,12 @@ class PoseNetDino(PoseNet):
         lstm_out, _ = self.lstm(feats)          # [B, 6, hidden_dim]
 
         lstm_out = lstm_out[:, 1:]              # [B, 5, hidden_dim] – for relative poses
-        # pose = self.pose_fc(lstm_out)           # [B, 5, 7]
-
-        # t = pose[:, :, :3]                      # [B, 5, 3]
-        # q = pose[:, :, 3:]                      # [B, 5, 4]
-        # Use separate heads for translation and rotation
+        
         t = self.translation_fc(lstm_out)       # [B, 5, 3]
-        q = self.rotation_fc(lstm_out)          # [B, 5, 4]
-        q = q / q.norm(dim=2, keepdim=True)     # normalize quaternion
+        r = self.rotation_fc(lstm_out)          # [B, 5, 6]
+        r = rotation_6d_to_matrix(r) # [B, 5, 3, 3]
 
-        return t, q
+        return t, r
 
 
 class PoseNetDinoContrastive(PoseNetDino):
@@ -175,7 +162,7 @@ class PoseNetDinoContrastive(PoseNetDino):
         )
         
         self.lstm_projector = nn.Sequential(
-            nn.Linear(self.hidden_dim, self.projection_dim),
+            nn.Linear(self.hidden_dim * 2, self.projection_dim),  # Account for bidirectional LSTM
             nn.ReLU(),
             nn.Linear(self.projection_dim, self.projection_dim)
         )
@@ -199,7 +186,7 @@ class PoseNetDinoContrastive(PoseNetDino):
         lstm_contrastive = lstm_out[:, 1:]        # [B, 5, hidden_dim]
         
         dino_projected = self.dino_projector(dino_contrastive.reshape(-1, self.feature_dim))  # [B*5, projection_dim]
-        lstm_projected = self.lstm_projector(lstm_contrastive.reshape(-1, self.hidden_dim))   # [B*5, projection_dim]
+        lstm_projected = self.lstm_projector(lstm_contrastive.reshape(-1, self.hidden_dim * 2))   # [B*5, projection_dim]
         
         dino_projected = F.normalize(dino_projected, dim=1)
         lstm_projected = F.normalize(lstm_projected, dim=1)
@@ -238,7 +225,18 @@ class PoseNetDinoContrastive(PoseNetDino):
                                    lambda_q=0.01, lambda_contrastive=0.1):
         
         loss_t = F.mse_loss(t_pred, t_gt.squeeze(1))
-        loss_q = self.quaternion_loss(q_pred=q_pred, q_gt=q_gt)
+        
+        # Handle rotation loss - check if q_gt is 3D or 4D
+        if q_gt.shape[-1] == 3:
+            # Ground truth is 3D (axis-angle or euler), convert quaternion pred to 3D
+            q_pred_3d = q_pred[..., 1:]  # Take the vector part of quaternion [x, y, z]
+            loss_q = F.mse_loss(q_pred_3d, q_gt)
+        elif q_gt.shape[-1] == 4:
+            # Ground truth is quaternion, use proper quaternion loss
+            loss_q = self.quaternion_loss(q_pred=q_pred, q_gt=q_gt)
+        else:
+            raise ValueError(f"Unexpected rotation dimension: {q_gt.shape[-1]}")
+            
         pose_loss = loss_t + lambda_q * loss_q
         
         contrastive_loss = self.contrastive_loss(dino_proj, lstm_proj)
@@ -247,7 +245,7 @@ class PoseNetDinoContrastive(PoseNetDino):
         
         return total_loss, {
             'translation_loss': loss_t.item(),
-            'quaternion_loss': loss_q.item(),
+            'rotation_loss': loss_q.item(),
             'contrastive_loss': contrastive_loss.item(),
             'pose_loss': pose_loss.item(),
             'total_loss': total_loss.item()
@@ -301,7 +299,7 @@ class PoseNetDinoImproved(PoseNetDino):
             nn.Linear(self.hidden_dim // 2, self.hidden_dim // 4),
             nn.ReLU(),
             nn.Dropout(dropout),
-            nn.Linear(self.hidden_dim // 4, 4)
+            nn.Linear(self.hidden_dim // 4, 6)
         )
         
         # Scale prediction for translation (to handle varying motion scales)
@@ -401,89 +399,57 @@ class PoseNetDinoImproved(PoseNetDino):
         }
 
 
-class PoseNetDinoMultiScale(PoseNetDino):
-    """PoseNetDino with multi-scale feature extraction for better translation learning"""
+def quaternion_to_rotation_matrix(q):
+    """
+    Convert quaternion to rotation matrix
     
-    def __init__(self, model_size='base', freeze_dino=True, hidden_dim=256):
-        super().__init__(model_size=model_size, freeze_dino=freeze_dino)
-        
-        self.hidden_dim = hidden_dim
-        
-        # Multi-scale feature extraction
-        self.scale_factors = [1.0, 0.75, 0.5]  # Different scales
-        
-        # Feature aggregation
-        self.multi_scale_fusion = nn.Sequential(
-            nn.Linear(self.feature_dim * len(self.scale_factors), self.feature_dim),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(self.feature_dim, self.feature_dim)
-        )
-        
-        # Enhanced LSTM
-        self.lstm = nn.LSTM(
-            input_size=self.feature_dim,
-            hidden_size=self.hidden_dim,
-            num_layers=2,
-            batch_first=True,
-            dropout=0.3,
-            bidirectional=True
-        )
-        
-        # Pose heads
-        self.translation_fc = nn.Sequential(
-            nn.Linear(self.hidden_dim * 2, self.hidden_dim),  # *2 for bidirectional
-            nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(self.hidden_dim, 3)
-        )
-        
-        self.rotation_fc = nn.Sequential(
-            nn.Linear(self.hidden_dim * 2, self.hidden_dim),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(self.hidden_dim, 4)
-        )
+    Args:
+        q: torch.Tensor of shape [batch_size, 4] 
+           Quaternion in format [qx, qy, qz, qw] or [qw, qx, qy, qz]
+           
+    Returns:
+        R: torch.Tensor of shape [batch_size, 3, 3] rotation matrices
+    """
+    # Normalize quaternion
+    q = q / torch.norm(q, dim=-1, keepdim=True)
     
-    def extract_multiscale_features(self, x):
-        """Extract features at multiple scales"""
-        features = []
-        B, C, H, W = x.shape
-        
-        for scale in self.scale_factors:
-            if scale != 1.0:
-                # Resize image
-                new_size = (int(H * scale), int(W * scale))
-                x_scaled = F.interpolate(x, size=new_size, mode='bilinear', align_corners=False)
-            else:
-                x_scaled = x
-            
-            # Extract DINOv2 features
-            feat = self.extract_cls_token(x_scaled)
-            features.append(feat)
-        
-        # Concatenate multi-scale features
-        multi_scale_feat = torch.cat(features, dim=1)
-        
-        # Fuse features
-        fused_feat = self.multi_scale_fusion(multi_scale_feat)
-        
-        return fused_feat
+    # Assuming quaternion format [qx, qy, qz, qw]
+    qx, qy, qz, qw = q[:, 0], q[:, 1], q[:, 2], q[:, 3]
     
-    def forward(self, x):
-        batch_size, seq_len, C, H, W = x.shape
-        dino_feats = []
+    # If your quaternion is [qw, qx, qy, qz], use this instead:
+    # qw, qx, qy, qz = q[:, 0], q[:, 1], q[:, 2], q[:, 3]
+    
+    # Compute rotation matrix elements
+    xx, yy, zz = qx**2, qy**2, qz**2
+    xy, xz, yz = qx*qy, qx*qz, qy*qz
+    xw, yw, zw = qx*qw, qy*qw, qz*qw
+    
+    # Build rotation matrix
+    R = torch.zeros(q.shape[0], 3, 3, device=q.device, dtype=q.dtype)
+    
+    R[:, 0, 0] = 1 - 2*(yy + zz)
+    R[:, 0, 1] = 2*(xy - zw)
+    R[:, 0, 2] = 2*(xz + yw)
+    
+    R[:, 1, 0] = 2*(xy + zw)
+    R[:, 1, 1] = 1 - 2*(xx + zz)
+    R[:, 1, 2] = 2*(yz - xw)
+    
+    R[:, 2, 0] = 2*(xz - yw)
+    R[:, 2, 1] = 2*(yz + xw)
+    R[:, 2, 2] = 1 - 2*(xx + yy)
+    
+    return R
 
-        for t in range(seq_len):
-            feat = self.extract_multiscale_features(x[:, t])
-            dino_feats.append(feat)
 
-        feats = torch.stack(dino_feats, dim=1)
-        lstm_out, _ = self.lstm(feats)
-        lstm_out = lstm_out[:, 1:]
-
-        t = self.translation_fc(lstm_out)
-        q = self.rotation_fc(lstm_out)
-        q = q / q.norm(dim=2, keepdim=True)
-
-        return t, q
+def rotation_6d_to_matrix(d6):
+    """
+    Convert 6D rotation representation to rotation matrix
+    More stable than quaternions for neural network training
+    """
+    a1, a2 = d6[..., :3], d6[..., 3:]
+    b1 = F.normalize(a1, dim=-1)
+    b2 = a2 - (b1 * a2).sum(dim=-1, keepdim=True) * b1
+    b2 = F.normalize(b2, dim=-1)
+    b3 = torch.cross(b1, b2, dim=-1)
+    return torch.stack([b1, b2, b3], dim=-2)
