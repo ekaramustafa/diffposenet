@@ -35,6 +35,7 @@ class TartanAirDataset(Dataset):
 
         # Collect all image and pose files
         self._collect_files()
+        logger.debug(f"Last sorted image file: {self.image_files[-1] if self.image_files else 'None'}")
 
         logger.info("Sorting image and pose files")
         self.image_files.sort()
@@ -55,16 +56,18 @@ class TartanAirDataset(Dataset):
 
     def _collect_files(self):
         """Collect all image and pose files from the directory structure"""
-        for envs_dir in os.listdir(self.root_dir):
+        for envs_dir in sorted(os.listdir(self.root_dir)):
+            if envs_dir == "abandonedfactory":
+                continue
             env_path = os.path.join(self.root_dir, envs_dir)
             logger.debug(f"Processing environment: {envs_dir}")
             
-            for difficulty in os.listdir(env_path):
+            for difficulty in sorted(os.listdir(env_path)):
                 difficulty_path = os.path.join(env_path, difficulty)
                 if difficulty == "Easy":
                     logger.debug(f"Processing difficulty level: {difficulty}")
                     
-                    for traj_dir in os.listdir(difficulty_path):
+                    for traj_dir in sorted(os.listdir(difficulty_path)):
                         if traj_dir.startswith("ME"): # do not include the ME part from challenge dataset
                             logger.debug(f"Skipping ME trajectory: {traj_dir}")
                             continue
@@ -72,10 +75,10 @@ class TartanAirDataset(Dataset):
                         traj_path = os.path.join(difficulty_path, traj_dir)
                         logger.debug(f"Processing trajectory: {traj_dir}")
                         
-                        for traj in os.listdir(traj_path):
+                        for traj in sorted(os.listdir(traj_path)):
                             file_path = os.path.join(traj_path, traj)
                             if os.path.isdir(file_path):
-                                for image in os.listdir(file_path):
+                                for image in sorted(os.listdir(file_path)):
                                     if image.endswith(".png"):
                                         self.image_files.append(os.path.join(file_path, image))
                             if file_path.endswith("left.txt"):
@@ -152,7 +155,7 @@ class TartanAirDataset(Dataset):
         image_seq = []
         for i in range(self.seq_len):
             img_idx = idx + i * self.skip
-            img = Image.open(self.image_files[img_idx])
+            img = Image.open(self.image_files[img_idx]).convert("RGB")
             if self.transform:
                 img = self.transform(img)
             image_seq.append(img)
@@ -234,7 +237,7 @@ class TartanAirDataset(Dataset):
         return R
     
     def _load_image(self, image_path):
-        image = Image.open(image_path)
+        image = Image.open(image_path).convert("RGB")
         if self.transform is not None:
             image = self.transform(image)
         return image

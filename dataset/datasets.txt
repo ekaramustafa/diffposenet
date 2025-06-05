@@ -1,2 +1,8 @@
-soulcity/Easy/flow_mask.zip 0.068599353
-soulcity/Easy/image_left.zip 6.885228694
+amusement/Hard/image_left.zip 3.948253128
+japanesealley/Hard/image_left.zip 1.059370225
+neighborhood/Hard/image_left.zip 6.898030125
+office/Hard/image_left.zip 1.944914119
+office2/Hard/image_left.zip 2.817847851
+oldtown/Hard/image_left.zip 3.632867999
+soulcity/Hard/image_left.zip 2.425316885
+seasidetown/Hard/image_left.zip 1.440927014

@@ -9,7 +9,7 @@ from tqdm import tqdm
 import wandb
 import numpy as np
 from accelerate import Accelerator
-from accelerate.utils import set_seed as accelerate_set_seed
+from accelerate.utils import set_seed as accelerate_set_seed, DistributedDataParallelKwargs
 import logging
 import json
 from datetime import datetime
@@ -19,7 +19,7 @@ import argparse
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from model import PoseNet, PoseNetDino
+from model import PoseNet, PoseNetDino, PoseNetDinoImproved
 from dataset.tartanair import TartanAirDataset
 from evaluation_metrics import TrajectoryEvaluator, convert_relative_to_absolute_poses
 
@@ -71,7 +71,7 @@ def get_experiment_configs():
         "save_every": 5, # save model every 5 epochs
         "eval_every": 1, # evaluate model every 1 epoch
         
-        "train_subset_ratio": 1, # train on 100% of the data
+        "train_subset_ratio": 0.5, # train on 100% of the data
         "val_subset_ratio": 1, # val on 100% of the data
         
         "evaluate_per_sequence": True, # evaluate per sequence
@@ -80,24 +80,31 @@ def get_experiment_configs():
     configs = [
         {
             **base_config,
-            "backbone": "dino",
+            "backbone": "dino_improved",
             "freeze": True,
-            "experiment_name": "dino",
+            "experiment_name": "hospital_dino_improved_frozen",
             "model_size": "base"
         },
-        {
-            **base_config,
-            "backbone": "vgg16",
-            "freeze": True,
-            "experiment_name": "vgg16_frozen",
-            "model_size": "base"
-        },
-        {
-            **base_config,
-            "backbone": "vgg16",
-            "freeze": False,
-            "experiment_name": "vgg16_unfrozen"
-        }
+        # {
+        #     **base_config,
+        #     "backbone": "dino",
+        #     "freeze": True,
+        #     "experiment_name": "dino",
+        #     "model_size": "base"
+        # },
+        # {
+        #     **base_config,
+        #     "backbone": "vgg16",
+        #     "freeze": True,
+        #     "experiment_name": "vgg16_frozen",
+        #     "model_size": "base"
+        # },
+        # {
+        #     **base_config,
+        #     "backbone": "vgg16",
+        #     "freeze": False,
+        #     "experiment_name": "vgg16_unfrozen"
+        # },
     ]
     
     return configs
@@ -112,8 +119,15 @@ def setup_datasets(config, logger):
         skip=config["skip"]
     )
     
+    # val_dataset = TartanAirDataset(
+    #     root_dir="/kuacc/users/imelanlioglu21/comp447_project/tartanair_dataset/cvpr_data/", 
+    #     size=config["image_size"], 
+    #     seq_len=config["val_seq_len"],
+    #     track_sequences=True
+    # )
+
     val_dataset = TartanAirDataset(
-        root_dir="/kuacc/users/imelanlioglu21/comp447_project/tartanair_dataset/cvpr_data/", 
+        root_dir="/kuacc/users/imelanlioglu21/comp447_project/tartanair_dataset/test_data/", 
         size=config["image_size"], 
         seq_len=config["val_seq_len"],
         track_sequences=True
@@ -123,8 +137,8 @@ def setup_datasets(config, logger):
     train_size = int(len(train_dataset) * config["train_subset_ratio"])
     val_size = int(len(val_dataset) * config["val_subset_ratio"])
     
-    train_indices = list(range(0, len(train_dataset), len(train_dataset) // train_size))[:train_size]
-    val_indices = list(range(0, len(val_dataset), len(val_dataset) // val_size))[:val_size]
+    train_indices = list(range(0, len(train_dataset), len(train_dataset) // train_size))
+    val_indices = list(range(0, len(val_dataset), len(val_dataset) // val_size))
     
     train_dataset = Subset(train_dataset, train_indices)
     val_dataset = Subset(val_dataset, val_indices)
@@ -157,7 +171,12 @@ def setup_datasets(config, logger):
     return train_loader, val_loader
 
 def setup_model_and_optimizer(config, logger):
-    if config["backbone"] == "dino":
+    if config["backbone"] == "dino_improved":
+        pose_net = PoseNetDinoImproved(
+            model_size=config["model_size"],
+            freeze_dino=config["freeze"],
+        )
+    elif config["backbone"] == "dino":
         pose_net = PoseNetDino(
             model_size=config["model_size"],
             freeze_dino=config["freeze"]
@@ -426,7 +445,7 @@ def save_and_log_results(pose_net, accelerator, config, final_sequence_metrics, 
     if accelerator.is_main_process:
         unwrapped_model = accelerator.unwrap_model(pose_net)
         model_path = f"pose_net_improved_per_sequence_{config['experiment_name']}_final.pth"
-        torch.save(unwrapped_model.state_dict(), model_path)
+        torch.save(unwrapped_model, model_path)
         
         if final_sequence_metrics and config["evaluate_per_sequence"]:
             logger.info("============= FINAL PER-SEQUENCE SUMMARY =============")
@@ -519,17 +538,20 @@ def run_experiment(config):
         print(f"Warning: wandb login failed: {e}")
         print("You can set WANDB_API_KEY environment variable or run 'wandb login' manually")
     
+    ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
+
     accelerator = Accelerator(
         gradient_accumulation_steps=1,
         mixed_precision="fp16",
         log_with="wandb",
+        kwargs_handlers=[ddp_kwargs]
     )
     
     logger = setup_logging(accelerator)
     
     if accelerator.is_main_process:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        run_name = f"PoseNet-PerSeq-{config['experiment_name']}-{accelerator.num_processes}GPUs-{timestamp}"
+        run_name = f"{config['experiment_name']}-PoseNet-PerSeq-{accelerator.num_processes}GPUs-{timestamp}"
         
         wandb.init(
             project="diffposenet-per-sequence",
@@ -537,8 +559,8 @@ def run_experiment(config):
             config=config
         )
         
-        os.makedirs("ebu/improved_posenet_per_seq/configs", exist_ok=True)
-        save_config(config, f"ebu/improved_posenet_per_seq/configs/config_{config['experiment_name']}_{timestamp}.json")
+        os.makedirs(f"ebu/{config['experiment_name']}/configs", exist_ok=True)
+        save_config(config, f"ebu/{config['experiment_name']}/configs/config_{config['experiment_name']}_{timestamp}.json")
     
     accelerate_set_seed(42)
     
@@ -629,16 +651,42 @@ def run_experiment(config):
         if val_metrics['total_loss'] < best_val_loss:
             best_val_loss = val_metrics['total_loss']
             if accelerator.is_main_process:
-                checkpoint_dir = f"ebu/improved_posenet_per_seq/checkpoints/{config['experiment_name']}"
+                checkpoint_dir = f"ebu/{config['experiment_name']}/checkpoints"
                 os.makedirs(checkpoint_dir, exist_ok=True)
-                accelerator.save_state(f"{checkpoint_dir}/best_model_epoch_{epoch+1}")
+                
+                # Save model and optimizer as .pth files instead of state
+                unwrapped_model = accelerator.unwrap_model(pose_net)
+                unwrapped_optimizer = accelerator.unwrap_model(optimizer)
+                
+                checkpoint = {
+                    'epoch': epoch + 1,
+                    'model_state_dict': unwrapped_model.state_dict(),
+                    'optimizer_state_dict': unwrapped_optimizer.state_dict(),
+                    'best_val_loss': best_val_loss,
+                    'config': config
+                }
+                
+                torch.save(checkpoint, f"{checkpoint_dir}/best_model_epoch_{epoch+1}.pth")
                 logger.info(f"New best model saved at epoch {epoch+1}")
         
         if (epoch + 1) % config["save_every"] == 0:
             if accelerator.is_main_process:
-                checkpoint_dir = f"ebu/improved_posenet_per_seq/checkpoints/{config['experiment_name']}"
+                checkpoint_dir = f"ebu/{config['experiment_name']}/checkpoints"
                 os.makedirs(checkpoint_dir, exist_ok=True)
-                accelerator.save_state(f"{checkpoint_dir}/checkpoint_epoch_{epoch+1}")
+                
+                # Save model and optimizer as .pth files instead of state
+                unwrapped_model = accelerator.unwrap_model(pose_net)
+                unwrapped_optimizer = accelerator.unwrap_model(optimizer)
+                
+                checkpoint = {
+                    'epoch': epoch + 1,
+                    'model_state_dict': unwrapped_model.state_dict(),
+                    'optimizer_state_dict': unwrapped_optimizer.state_dict(),
+                    'val_loss': val_metrics['total_loss'],
+                    'config': config
+                }
+                
+                torch.save(checkpoint, f"{checkpoint_dir}/checkpoint_epoch_{epoch+1}.pth")
                 logger.info(f"Checkpoint saved at epoch {epoch+1}")
     
     if accelerator.is_main_process:
@@ -655,17 +703,17 @@ def run_experiment(config):
 def main():
     parser = argparse.ArgumentParser(description='Train PoseNet with multiple configurations')
     parser.add_argument('--config_idx', type=int, default=None, 
-                        help='Index of configuration to run (0: dino, 1: vgg16_frozen, 2: vgg16_unfrozen). If not specified, runs all configs.')
+                        help='Index of configuration to run (0: dino_improved_frozen, 1: dino_improved_unfrozen). If not specified, runs all configs.')
     args = parser.parse_args()
     
-    os.makedirs("ebu/improved_posenet_per_seq/checkpoints", exist_ok=True)
-    os.makedirs("ebu/improved_posenet_per_seq/configs", exist_ok=True)
     
     configs = get_experiment_configs()
-    
+
     if args.config_idx is not None:
         if 0 <= args.config_idx < len(configs):
             print(f"Running single experiment: {configs[args.config_idx]['experiment_name']}")
+            os.makedirs(f"ebu/{configs[args.config_idx]['experiment_name']}/checkpoints", exist_ok=True)
+            os.makedirs(f"ebu/{configs[args.config_idx]['experiment_name']}/configs", exist_ok=True)
             model = run_experiment(configs[args.config_idx])
         else:
             print(f"Invalid config index {args.config_idx}. Available indices: 0-{len(configs)-1}")

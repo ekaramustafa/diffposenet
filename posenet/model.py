@@ -55,7 +55,7 @@ class PoseNet(nn.Module):
 
         return t, q
 
-    def pose_loss(self, t_pred, q_pred, t_gt, q_gt, lambda_q=0.0001):
+    def pose_loss(self, t_pred, q_pred, t_gt, q_gt, lambda_q=0.01):
         loss_t = F.mse_loss(t_pred, t_gt.squeeze(1))
         loss_q = self.quaternion_loss(q_pred = q_pred, q_gt = q_gt)
         return loss_t + lambda_q * loss_q,  {
@@ -63,27 +63,6 @@ class PoseNet(nn.Module):
             'quaternion_loss': loss_q.item(),
             'total_loss': (loss_t + lambda_q * loss_q).item()
         }
-
-    # def pose_loss(self, t_pred, q_pred, t_gt, q_gt):
-    #     loss_t = F.mse_loss(t_pred, t_gt.squeeze(1))
-    #     loss_q = self.quaternion_loss(q_pred=q_pred, q_gt=q_gt)
-        
-    #     # Adaptive weighting based on learned uncertainties
-    #     precision_t = torch.exp(-self.log_var_t)
-    #     precision_q = torch.exp(-self.log_var_q)
-        
-    #     weighted_loss_t = precision_t * loss_t + self.log_var_t
-    #     weighted_loss_q = precision_q * loss_q + self.log_var_q
-        
-    #     total_loss = weighted_loss_t + weighted_loss_q
-        
-    #     return total_loss, {
-    #         'translation_loss': loss_t.item(),
-    #         'quaternion_loss': loss_q.item(),
-    #         'weight_t': precision_t.item(),
-    #         'weight_q': precision_q.item(),
-    #         'total_loss': total_loss.item()
-    #     }
     
     def quaternion_loss(self, q_pred, q_gt):
         q_pred = F.normalize(q_pred, p=2, dim=2)
@@ -116,15 +95,35 @@ class PoseNetDino(PoseNet):
             for param in self.dinov2.parameters():
                 param.requires_grad = False
         
-        self.hidden_dim = 128
+        self.hidden_dim = 256
         
-        self.lstm = nn.GRU(input_size=self.feature_dim, hidden_size=self.hidden_dim, 
-                          num_layers=2, batch_first=True, dropout=0.3)
+        self.lstm = nn.LSTM(input_size=self.feature_dim, hidden_size=self.hidden_dim, 
+                          num_layers=3, batch_first=True, dropout=0.3, bidirectional=True)
 
         # Separate network heads for translation and rotation
         # self.pose_fc = nn.Linear(self.hidden_dim, 7)
-        self.translation_fc = nn.Linear(self.hidden_dim, 3)
-        self.rotation_fc = nn.Linear(self.hidden_dim, 4)
+        # self.translation_fc = nn.Linear(self.hidden_dim, 3)
+        # self.rotation_fc = nn.Linear(self.hidden_dim, 4)
+
+        self.translation_fc = nn.Sequential(
+            nn.Linear(self.hidden_dim, self.hidden_dim // 2),
+            nn.ReLU(),
+            nn.Dropout(0.3),
+            nn.Linear(self.hidden_dim // 2, self.hidden_dim // 4),
+            nn.ReLU(),
+            nn.Dropout(0.3),
+            nn.Linear(self.hidden_dim // 4, 3)
+        )
+        
+        self.rotation_fc = nn.Sequential(
+            nn.Linear(self.hidden_dim, self.hidden_dim // 2),
+            nn.ReLU(),
+            nn.Dropout(0.3),
+            nn.Linear(self.hidden_dim // 2, self.hidden_dim // 4),
+            nn.ReLU(),
+            nn.Dropout(0.3),
+            nn.Linear(self.hidden_dim // 4, 4)
+        )
 
         # uncertainty parameters
         # self.log_var_t = nn.Parameter(torch.zeros(1))
@@ -253,3 +252,238 @@ class PoseNetDinoContrastive(PoseNetDino):
             'pose_loss': pose_loss.item(),
             'total_loss': total_loss.item()
         }
+
+
+class PoseNetDinoImproved(PoseNetDino):
+    def __init__(self, model_size='base', freeze_dino=True, hidden_dim=256, use_attention=True, 
+                    use_bidirectional_lstm=True, dropout=0.3):
+        super().__init__(model_size=model_size, freeze_dino=freeze_dino)
+        
+        self.use_attention = use_attention
+        self.use_bidirectional_lstm = use_bidirectional_lstm
+        
+        # Override hidden_dim
+        self.hidden_dim = hidden_dim
+        
+        # Improved temporal modeling
+        lstm_directions = 2 if use_bidirectional_lstm else 1
+        self.lstm = nn.LSTM(
+            input_size=self.feature_dim, 
+            hidden_size=self.hidden_dim // lstm_directions,
+            num_layers=3,  # Deeper LSTM
+            batch_first=True, 
+            dropout=dropout,
+            bidirectional=use_bidirectional_lstm
+        )
+        
+        # Temporal attention
+        if self.use_attention:
+            self.temporal_attention = nn.MultiheadAttention(
+                embed_dim=self.hidden_dim, num_heads=8, dropout=dropout
+            )
+            self.temporal_norm = nn.LayerNorm(self.hidden_dim)
+        
+        # Enhanced pose regression heads with residual connections
+        self.translation_head = nn.Sequential(
+            nn.Linear(self.hidden_dim, self.hidden_dim // 2),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(self.hidden_dim // 2, self.hidden_dim // 4),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(self.hidden_dim // 4, 3)
+        )
+        
+        self.rotation_head = nn.Sequential(
+            nn.Linear(self.hidden_dim, self.hidden_dim // 2),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(self.hidden_dim // 2, self.hidden_dim // 4),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(self.hidden_dim // 4, 4)
+        )
+        
+        # Scale prediction for translation (to handle varying motion scales)
+        self.translation_scale = nn.Parameter(torch.ones(1))
+        
+        # Feature normalization
+        self.feature_norm = nn.LayerNorm(self.feature_dim)
+        
+        # Initialize weights properly
+        self._initialize_weights()
+    
+    def _initialize_weights(self):
+        """Proper weight initialization for better convergence"""
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.xavier_uniform_(m.weight)
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.LSTM):
+                for name, param in m.named_parameters():
+                    if 'weight_ih' in name:
+                        nn.init.xavier_uniform_(param.data)
+                    elif 'weight_hh' in name:
+                        nn.init.orthogonal_(param.data)
+                    elif 'bias' in name:
+                        nn.init.constant_(param.data, 0)
+    
+    def forward(self, x):
+        batch_size, seq_len, C, H, W = x.shape  # [B, 6, 3, H, W]
+        dino_feats = []
+
+        for t in range(seq_len):
+            feat = self.extract_cls_token(x[:, t])
+            dino_feats.append(feat)
+
+        feats = torch.stack(dino_feats, dim=1)  # [B, 6, feature_dim]
+        
+        # LSTM processing
+        lstm_out, _ = self.lstm(feats)          # [B, 6, hidden_dim]
+        
+        # Take relative poses (frames 2-6 relative to previous)
+        lstm_out = lstm_out[:, 1:]              # [B, 5, hidden_dim]
+        
+        # Apply temporal attention if enabled
+        if self.use_attention:
+            lstm_out_t = lstm_out.transpose(0, 1)  # [5, B, hidden_dim]
+            attended_out, _ = self.temporal_attention(
+                lstm_out_t, lstm_out_t, lstm_out_t
+            )
+            lstm_out = self.temporal_norm(attended_out.transpose(0, 1))
+        
+        # Pose prediction
+        t = self.translation_head(lstm_out)     # [B, 5, 3]
+        q = self.rotation_head(lstm_out)        # [B, 5, 4]
+        
+        # Apply learned scale to translation
+        t = t * self.translation_scale
+        
+        # Normalize quaternion
+        q = q / q.norm(dim=2, keepdim=True)
+        
+        return t, q
+    
+    def pose_loss(self, t_pred, q_pred, t_gt, q_gt, lambda_q=0.1, lambda_smooth=0.01):
+        """Enhanced loss function with smoothness regularization"""
+        # Main translation loss - using Smooth L1 instead of MSE for robustness
+        loss_t = F.smooth_l1_loss(t_pred, t_gt.squeeze(1))
+        
+        # Quaternion loss
+        loss_q = self.quaternion_loss(q_pred=q_pred, q_gt=q_gt)
+        
+        # Smoothness regularization for translation
+        if t_pred.shape[1] > 1:
+            t_diff = t_pred[:, 1:] - t_pred[:, :-1]
+            loss_smooth_t = torch.mean(torch.norm(t_diff, dim=2))
+        else:
+            loss_smooth_t = torch.tensor(0.0, device=t_pred.device)
+        
+        # Smoothness regularization for rotation
+        if q_pred.shape[1] > 1:
+            q_diff = q_pred[:, 1:] - q_pred[:, :-1]
+            loss_smooth_q = torch.mean(torch.norm(q_diff, dim=2))
+        else:
+            loss_smooth_q = torch.tensor(0.0, device=q_pred.device)
+        
+        # Total loss
+        total_loss = (loss_t + 
+                     lambda_q * loss_q + 
+                     lambda_smooth * (loss_smooth_t + loss_smooth_q))
+        
+        return total_loss, {
+            'translation_loss': loss_t.item(),
+            'quaternion_loss': loss_q.item(),
+            'smoothness_loss_t': loss_smooth_t.item(),
+            'smoothness_loss_q': loss_smooth_q.item(),
+            'total_loss': total_loss.item()
+        }
+
+
+class PoseNetDinoMultiScale(PoseNetDino):
+    """PoseNetDino with multi-scale feature extraction for better translation learning"""
+    
+    def __init__(self, model_size='base', freeze_dino=True, hidden_dim=256):
+        super().__init__(model_size=model_size, freeze_dino=freeze_dino)
+        
+        self.hidden_dim = hidden_dim
+        
+        # Multi-scale feature extraction
+        self.scale_factors = [1.0, 0.75, 0.5]  # Different scales
+        
+        # Feature aggregation
+        self.multi_scale_fusion = nn.Sequential(
+            nn.Linear(self.feature_dim * len(self.scale_factors), self.feature_dim),
+            nn.ReLU(),
+            nn.Dropout(0.3),
+            nn.Linear(self.feature_dim, self.feature_dim)
+        )
+        
+        # Enhanced LSTM
+        self.lstm = nn.LSTM(
+            input_size=self.feature_dim,
+            hidden_size=self.hidden_dim,
+            num_layers=2,
+            batch_first=True,
+            dropout=0.3,
+            bidirectional=True
+        )
+        
+        # Pose heads
+        self.translation_fc = nn.Sequential(
+            nn.Linear(self.hidden_dim * 2, self.hidden_dim),  # *2 for bidirectional
+            nn.ReLU(),
+            nn.Dropout(0.3),
+            nn.Linear(self.hidden_dim, 3)
+        )
+        
+        self.rotation_fc = nn.Sequential(
+            nn.Linear(self.hidden_dim * 2, self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.3),
+            nn.Linear(self.hidden_dim, 4)
+        )
+    
+    def extract_multiscale_features(self, x):
+        """Extract features at multiple scales"""
+        features = []
+        B, C, H, W = x.shape
+        
+        for scale in self.scale_factors:
+            if scale != 1.0:
+                # Resize image
+                new_size = (int(H * scale), int(W * scale))
+                x_scaled = F.interpolate(x, size=new_size, mode='bilinear', align_corners=False)
+            else:
+                x_scaled = x
+            
+            # Extract DINOv2 features
+            feat = self.extract_cls_token(x_scaled)
+            features.append(feat)
+        
+        # Concatenate multi-scale features
+        multi_scale_feat = torch.cat(features, dim=1)
+        
+        # Fuse features
+        fused_feat = self.multi_scale_fusion(multi_scale_feat)
+        
+        return fused_feat
+    
+    def forward(self, x):
+        batch_size, seq_len, C, H, W = x.shape
+        dino_feats = []
+
+        for t in range(seq_len):
+            feat = self.extract_multiscale_features(x[:, t])
+            dino_feats.append(feat)
+
+        feats = torch.stack(dino_feats, dim=1)
+        lstm_out, _ = self.lstm(feats)
+        lstm_out = lstm_out[:, 1:]
+
+        t = self.translation_fc(lstm_out)
+        q = self.rotation_fc(lstm_out)
+        q = q / q.norm(dim=2, keepdim=True)
+
+        return t, q

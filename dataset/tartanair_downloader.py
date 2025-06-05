@@ -14,9 +14,9 @@ class TartanAirDownloader(object):
         # https://github.com/castacks/tartanair_tools/blob/master/download_training.py
         
         self._isloaded = False
-        self._levellist = ['Easy']
-        self._typelist = ['image', 'flow']
-        self._cameralist = ['left', 'mask']
+        self._levellist = ['Hard']
+        self._typelist = ['image']
+        self._cameralist = ['left']
         self._dataset_info_path = "dataset/datasets.txt"
         if dataset_info_path is not None:
             self._dataset_info_path = dataset_info_path
@@ -25,7 +25,7 @@ class TartanAirDownloader(object):
         self.bucket_name = bucket_name
 
     
-    def load(self, levellist=['Easy'], typelist=['image', 'flow'], cameralist=['left', 'mask']):
+    def load(self, levellist=['Hard'], typelist=['image'], cameralist=['left']):
         if levellist is None:
             levellist = self._levellist
         if typelist is None:
@@ -64,7 +64,10 @@ class TartanAirDownloader(object):
         self._isloaded = True
 
 
-    def download(self, destination_path: str, environments: List[str] = ["soulcity"]):
+    def download(self, destination_path: str, environments: List[str] = ["amusement", "japanesealley", 
+                                                                         "neighborhood", "office", 
+                                                                         "office2", "oldtown", 
+                                                                         "soulcity", "seasidetown"]):
         if not self._isloaded:
             print("The dataset info is not loaded, Please load the dataset info first by calling load()")
             return False, None
@@ -207,6 +210,9 @@ class TartanAirDownloader(object):
     
 if __name__ == "__main__":
     downloader = TartanAirDownloader(dataset_info_path="/scratch/users/imelanlioglu21/comp447_project/diffposenet/dataset/datasets.txt")
-    downloader.load(levellist=['Easy'], typelist=['image', 'flow'], cameralist=['left','mask'])
-    bl, lst = downloader.download("/scratch/users/imelanlioglu21/comp447_project/tartanair_dataset", ["soulcity"])
+    downloader.load(levellist=['Hard'], typelist=['image'], cameralist=['left'])
+    bl, lst = downloader.download("/scratch/users/imelanlioglu21/comp447_project/tartanair_dataset", ["amusement", "japanesealley", 
+                                                                                                      "neighborhood", "office", 
+                                                                                                      "office2", "oldtown", 
+                                                                                                      "soulcity", "seasidetown"])
     print(lst)
