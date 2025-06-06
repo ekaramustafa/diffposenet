@@ -401,6 +401,189 @@ class PoseNetDinoImproved(PoseNetDino):
         }
 
 
+
+class PoseNetDinoImprovedContrastiveIsolated(PoseNetDinoImproved):
+    """
+    Combines improved architecture with isolated contrastive learning.
+    """
+    
+    def __init__(self, model_size='base', freeze_dino=True, hidden_dim=256, 
+                 use_attention=True, use_bidirectional_lstm=True, dropout=0.3,
+                 projection_dim=128, temperature=0.07):
+        super().__init__(
+            model_size=model_size, 
+            freeze_dino=freeze_dino, 
+            hidden_dim=hidden_dim,
+            use_attention=use_attention, 
+            use_bidirectional_lstm=use_bidirectional_lstm, 
+            dropout=dropout
+        )
+        
+        self.projection_dim = projection_dim
+        self.temperature = temperature
+        
+        # Contrastive projectors for isolated contrastive learning
+        # Only for translation features (rotation is detached)
+        self.trans_projector = nn.Sequential(
+            nn.Linear(self.hidden_dim, self.projection_dim),
+            nn.ReLU(),
+            nn.Dropout(dropout * 0.5),  # Lighter dropout for projectors
+            nn.Linear(self.projection_dim, self.projection_dim)
+        )
+        
+        self.dino_projector = nn.Sequential(
+            nn.Linear(self.feature_dim, self.projection_dim),
+            nn.ReLU(),
+            nn.Dropout(dropout * 0.5),
+            nn.Linear(self.projection_dim, self.projection_dim)
+        )
+        
+        # Initialize the new projector weights
+        self._initialize_projector_weights()
+    
+    def _initialize_projector_weights(self):
+        """Initialize projector weights properly"""
+        for projector in [self.trans_projector, self.dino_projector]:
+            for m in projector.modules():
+                if isinstance(m, nn.Linear):
+                    nn.init.xavier_uniform_(m.weight)
+                    if m.bias is not None:
+                        nn.init.constant_(m.bias, 0)
+    
+    def forward(self, x, return_contrastive_features=False):
+        batch_size, seq_len, C, H, W = x.shape  # [B, 6, 3, H, W]
+        dino_feats = []
+        raw_dino_feats = []
+
+        for t in range(seq_len):
+            feat = self.extract_cls_token(x[:, t])
+            dino_feats.append(feat)
+            raw_dino_feats.append(feat)
+
+        feats = torch.stack(dino_feats, dim=1)  # [B, 6, feature_dim]
+        raw_dino_feats = torch.stack(raw_dino_feats, dim=1)  # [B, 6, feature_dim]
+        
+        # LSTM processing
+        lstm_out, _ = self.lstm(feats)          # [B, 6, hidden_dim]
+        
+        # Take relative poses (frames 2-6 relative to previous)
+        lstm_out = lstm_out[:, 1:]              # [B, 5, hidden_dim]
+        
+        # Apply temporal attention if enabled
+        if self.use_attention:
+            lstm_out_t = lstm_out.transpose(0, 1)  # [5, B, hidden_dim]
+            attended_out, _ = self.temporal_attention(
+                lstm_out_t, lstm_out_t, lstm_out_t
+            )
+            lstm_out = self.temporal_norm(attended_out.transpose(0, 1))
+        
+        # Translation prediction (for contrastive learning)
+        translation_features = lstm_out
+        t = self.translation_head(translation_features)     # [B, 5, 3]
+        
+        # Rotation prediction (detached from contrastive learning)
+        rotation_features = lstm_out.detach()  # Detach for isolated contrastive learning
+        q = self.rotation_head(rotation_features)        # [B, 5, 4]
+        
+        # Apply learned scale to translation
+        t = t * self.translation_scale
+        
+        # Normalize quaternion
+        q = q / q.norm(dim=2, keepdim=True)
+        
+        if return_contrastive_features:
+            # Prepare contrastive features
+            dino_contrastive = raw_dino_feats[:, 1:]  # [B, 5, feature_dim]
+            
+            # Project features for contrastive learning
+            dino_proj = self.dino_projector(dino_contrastive.reshape(-1, self.feature_dim))
+            trans_proj = self.trans_projector(translation_features.reshape(-1, self.hidden_dim))
+            
+            # Normalize projections
+            dino_proj = F.normalize(dino_proj, dim=1)
+            trans_proj = F.normalize(trans_proj, dim=1)
+            
+            # Reshape back to sequence format
+            dino_proj = dino_proj.reshape(batch_size, 5, self.projection_dim)
+            trans_proj = trans_proj.reshape(batch_size, 5, self.projection_dim)
+            
+            return t, q, dino_proj, trans_proj
+        
+        return t, q
+    
+    def contrastive_loss(self, dino_proj, trans_proj):
+        """
+        This is isolated. Only affects translation learning, rotation is detached.
+        """
+        batch_size, seq_len, proj_dim = dino_proj.shape
+        
+        # Flatten for contrastive learning
+        dino_flat = dino_proj.reshape(-1, proj_dim)  # [B*5, proj_dim]
+        trans_flat = trans_proj.reshape(-1, proj_dim)  # [B*5, proj_dim]
+        
+        # Compute similarity matrix
+        logits = torch.matmul(dino_flat, trans_flat.T) / self.temperature  # [B*5, B*5]
+        
+        # Positive pairs are on the diagonal
+        labels = torch.arange(batch_size * seq_len, device=dino_proj.device)
+        
+        # Bidirectional contrastive loss
+        loss_dino_to_trans = F.cross_entropy(logits, labels)
+        loss_trans_to_dino = F.cross_entropy(logits.T, labels)
+        
+        contrastive_loss = (loss_dino_to_trans + loss_trans_to_dino) / 2
+        
+        return contrastive_loss
+    
+    def pose_loss(self, t_pred, q_pred, t_gt, q_gt, dino_proj, trans_proj, 
+                  lambda_q=0.1, lambda_smooth=0.01, lambda_contrastive=0.1):
+        """
+        This is the main loss function. Requires careful tuning of the hyperparameters bro.
+        """
+        # Translation loss - using Smooth L1 for robustness
+        loss_t = F.smooth_l1_loss(t_pred, t_gt.squeeze(1))
+        
+        # Quaternion loss
+        loss_q = self.quaternion_loss(q_pred=q_pred, q_gt=q_gt)
+        
+        # Smoothness regularization
+        if t_pred.shape[1] > 1:
+            t_diff = t_pred[:, 1:] - t_pred[:, :-1]
+            loss_smooth_t = torch.mean(torch.norm(t_diff, dim=2))
+        else:
+            loss_smooth_t = torch.tensor(0.0, device=t_pred.device)
+        
+        # Smoothness regularization
+        if q_pred.shape[1] > 1:
+            q_diff = q_pred[:, 1:] - q_pred[:, :-1]
+            loss_smooth_q = torch.mean(torch.norm(q_diff, dim=2))
+        else:
+            loss_smooth_q = torch.tensor(0.0, device=q_pred.device)
+        
+        # Pose loss
+        pose_loss = (loss_t + 
+                    lambda_q * loss_q + 
+                    lambda_smooth * (loss_smooth_t + loss_smooth_q))
+        
+        # Isolated contrastive loss
+        contrastive_loss = self.contrastive_loss(dino_proj, trans_proj)
+        
+        # Total loss
+        total_loss = pose_loss + lambda_contrastive * contrastive_loss
+        
+        return total_loss, {
+            'translation_loss': loss_t.item(),
+            'quaternion_loss': loss_q.item(),
+            # 'smoothness_loss_t': loss_smooth_t.item(),
+            # 'smoothness_loss_q': loss_smooth_q.item(),
+            'contrastive_loss': contrastive_loss.item(),
+            'pose_loss': pose_loss.item(),
+            'total_loss': total_loss.item()
+        }
+
+
+
+
 class PoseNetDinoMultiScale(PoseNetDino):
     """PoseNetDino with multi-scale feature extraction for better translation learning"""
     
@@ -486,4 +669,139 @@ class PoseNetDinoMultiScale(PoseNetDino):
         q = self.rotation_fc(lstm_out)
         q = q / q.norm(dim=2, keepdim=True)
 
+        return t, 
+
+class PoseNetDinoImprovedContrastive(PoseNetDinoImproved):
+    """
+    Combines improved architecture with non-isolated contrastive learning.
+    Contrastive learning affects both translation and rotation learning.
+    """
+    
+    def __init__(self, model_size='base', freeze_dino=True, hidden_dim=256, 
+                 use_attention=True, use_bidirectional_lstm=True, dropout=0.3,
+                 projection_dim=128, temperature=0.07):
+        super().__init__(
+            model_size=model_size, 
+            freeze_dino=freeze_dino, 
+            hidden_dim=hidden_dim,
+            use_attention=use_attention, 
+            use_bidirectional_lstm=use_bidirectional_lstm, 
+            dropout=dropout
+        )
+        
+        self.projection_dim = projection_dim
+        self.temperature = temperature
+        
+        self.lstm_projector = nn.Sequential(
+            nn.Linear(self.hidden_dim, self.projection_dim),
+            nn.ReLU(),
+            nn.Dropout(dropout * 0.5),  # Lighter dropout for projectors
+            nn.Linear(self.projection_dim, self.projection_dim)
+        )
+        
+        # Initialize the new projector weights
+        self._initialize_projector_weights()
+    
+    def _initialize_projector_weights(self):
+        """Initialize projector weights properly"""
+        for projector in [self.lstm_projector, self.dino_projector]:
+            for m in projector.modules():
+                if isinstance(m, nn.Linear):
+                    nn.init.xavier_uniform_(m.weight)
+                    if m.bias is not None:
+                        nn.init.constant_(m.bias, 0)
+    
+    def forward(self, x, return_contrastive_features=False):
+        batch_size, seq_len, C, H, W = x.shape  # [B, 6, 3, H, W]
+        dino_feats = []
+        raw_dino_feats = []
+
+        for t in range(seq_len):
+            feat = self.extract_cls_token(x[:, t])
+            dino_feats.append(feat)
+            raw_dino_feats.append(feat)
+
+        feats = torch.stack(dino_feats, dim=1)  # [B, 6, feature_dim]
+        raw_dino_feats = torch.stack(raw_dino_feats, dim=1)  # [B, 6, feature_dim]
+        
+        lstm_out, _ = self.lstm(feats)          # [B, 6, hidden_dim]
+        
+        lstm_out = lstm_out[:, 1:]              # [B, 5, hidden_dim]
+        
+        if self.use_attention:
+            lstm_out_t = lstm_out.transpose(0, 1)  # [5, B, hidden_dim]
+            attended_out, _ = self.temporal_attention(
+                lstm_out_t, lstm_out_t, lstm_out_t
+            )
+            lstm_out = self.temporal_norm(attended_out.transpose(0, 1))
+        
+        pose_features = lstm_out
+        
+        # Pose predictions
+        t = self.translation_head(pose_features)     # [B, 5, 3]
+        q = self.rotation_head(pose_features)        # [B, 5, 4]
+        
+        # Apply learned scale to translation
+        t = t * self.translation_scale
+        
+        # Normalize quaternion
+        q = q / q.norm(dim=2, keepdim=True)
+        
+        if return_contrastive_features:
+            lstm_proj = self.lstm_projector(pose_features.reshape(-1, self.hidden_dim))
+            lstm_proj = F.normalize(lstm_proj, dim=1)
+            lstm_proj = lstm_proj.reshape(batch_size, 5, self.projection_dim)
+            
+            return t, q, lstm_proj
+        
         return t, q
+    
+    def contrastive_loss(self, dino_proj, lstm_proj):
+        return 0
+    
+    def pose_loss(self, t_pred, q_pred, t_gt, q_gt, dino_proj, lstm_proj, 
+                  lambda_q=0.1, lambda_smooth=0.01, lambda_contrastive=0.1):
+        """
+        Enhanced loss function with non-isolated contrastive learning.
+        The contrastive loss affects both translation and rotation learning.
+        """
+        # Translation loss - using Smooth L1 for robustness
+        loss_t = F.smooth_l1_loss(t_pred, t_gt.squeeze(1))
+        
+        # Quaternion loss
+        loss_q = self.quaternion_loss(q_pred=q_pred, q_gt=q_gt)
+        
+        # Smoothness regularization for translation
+        if t_pred.shape[1] > 1:
+            t_diff = t_pred[:, 1:] - t_pred[:, :-1]
+            loss_smooth_t = torch.mean(torch.norm(t_diff, dim=2))
+        else:
+            loss_smooth_t = torch.tensor(0.0, device=t_pred.device)
+        
+        # Smoothness regularization for rotation
+        if q_pred.shape[1] > 1:
+            q_diff = q_pred[:, 1:] - q_pred[:, :-1]
+            loss_smooth_q = torch.mean(torch.norm(q_diff, dim=2))
+        else:
+            loss_smooth_q = torch.tensor(0.0, device=q_pred.device)
+        
+        # Pose loss
+        pose_loss = (loss_t + 
+                    lambda_q * loss_q + 
+                    lambda_smooth * (loss_smooth_t + loss_smooth_q))
+        
+        # Non-isolated contrastive loss (affects both translation and rotation)
+        contrastive_loss = self.contrastive_loss(dino_proj, lstm_proj)
+        
+        # Total loss
+        total_loss = pose_loss + lambda_contrastive * contrastive_loss
+        
+        return total_loss, {
+            'translation_loss': loss_t.item(),
+            'quaternion_loss': loss_q.item(),
+            # 'smoothness_loss_t': loss_smooth_t.item(),
+            # 'smoothness_loss_q': loss_smooth_q.item(),
+            'contrastive_loss': contrastive_loss.item(),
+            'pose_loss': pose_loss.item(),
+            'total_loss': total_loss.item()
+        } 

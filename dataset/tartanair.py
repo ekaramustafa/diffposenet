@@ -149,7 +149,7 @@ class TartanAirDataset(Dataset):
         return self.sequence_names.copy()
 
     def __len__(self):
-        return len(self.image_files) - (self.seq_len - 1) * self.skip
+        return len(self.poses) - (self.seq_len - 1) * self.skip
 
     def __getitem__(self, idx):
         image_seq = []
@@ -196,7 +196,7 @@ class TartanAirDataset(Dataset):
         assert np.allclose(np.linalg.norm(q2), 1.0, atol=1e-6)
 
         R1 = self._quaternion_to_rotation_matrix(q1)
-        t_rel = np.dot(R1.T, (t2 - t1))
+        t_rel = t2 - t1 
 
         return torch.from_numpy(t_rel).float(), torch.from_numpy(q_rel).float()
     

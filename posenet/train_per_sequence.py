@@ -19,7 +19,7 @@ import argparse
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from model import PoseNet, PoseNetDino, PoseNetDinoImproved
+from model import PoseNet, PoseNetDino, PoseNetDinoImproved, PoseNetDinoImprovedContrastiveIsolated, PoseNetDinoImprovedContrastive
 from dataset.tartanair import TartanAirDataset
 from evaluation_metrics import TrajectoryEvaluator, convert_relative_to_absolute_poses
 
@@ -71,20 +71,54 @@ def get_experiment_configs():
         "save_every": 5, # save model every 5 epochs
         "eval_every": 1, # evaluate model every 1 epoch
         
-        "train_subset_ratio": 0.5, # train on 100% of the data
+        "train_subset_ratio": 1, # train on 100% of the data
         "val_subset_ratio": 1, # val on 100% of the data
         
         "evaluate_per_sequence": True, # evaluate per sequence
+        "log_wandb": True, # toggle wandb logging
     }
     
     configs = [
+        # {
+        #     **base_config,
+        #     "backbone": "dino_improved",
+        #     "freeze": True,
+        #     "experiment_name": "cvpr_quaternion_dino_improved_frozen",
+        #     "model_size": "base"
+        # },
         {
             **base_config,
-            "backbone": "dino_improved",
+            "backbone": "dino_improved_contrastive_isolated",
             "freeze": True,
-            "experiment_name": "hospital_dino_improved_frozen",
-            "model_size": "base"
+            "experiment_name": "cvpr_0.01_quaternion_dino_improved_isolated_contrastive_frozen",
+            "model_size": "base",
+            "lambda_contrastive": 0.01,
         },
+        {
+            **base_config,
+            "backbone": "dino_improved_contrastive",
+            "freeze": True,
+            "experiment_name": "cvpr_0.01_quaternion_dino_improved_contrastive_frozen",
+            "model_size": "base",
+            "lambda_contrastive": 0.01,
+        },
+        # {
+        #     **base_config,
+        #     "backbone": "dino_improved_contrastive",
+        #     "freeze": True,
+        #     "experiment_name": "cvpr_0.1_quaternion_dino_improved_contrastive_frozen",
+        #     "model_size": "base",
+        #     "lambda_contrastive": 0.1,
+        # },
+        # {
+        #     **base_config,
+        #     "backbone": "dino_improved_contrastive",
+        #     "freeze": True,
+        #     "experiment_name": "cvpr_0.5_quaternion_dino_improved_contrastive_frozen",
+        #     "model_size": "base",
+        #     "lambda_contrastive": 0.5,
+        # },
+
         # {
         #     **base_config,
         #     "backbone": "dino",
@@ -103,7 +137,7 @@ def get_experiment_configs():
         #     **base_config,
         #     "backbone": "vgg16",
         #     "freeze": False,
-        #     "experiment_name": "vgg16_unfrozen"
+        #     "experiment_name": "cvpr_vgg16_quaternion_unfrozen"
         # },
     ]
     
@@ -119,19 +153,19 @@ def setup_datasets(config, logger):
         skip=config["skip"]
     )
     
-    # val_dataset = TartanAirDataset(
-    #     root_dir="/kuacc/users/imelanlioglu21/comp447_project/tartanair_dataset/cvpr_data/", 
-    #     size=config["image_size"], 
-    #     seq_len=config["val_seq_len"],
-    #     track_sequences=True
-    # )
-
     val_dataset = TartanAirDataset(
-        root_dir="/kuacc/users/imelanlioglu21/comp447_project/tartanair_dataset/test_data/", 
+        root_dir="/kuacc/users/imelanlioglu21/comp447_project/tartanair_dataset/cvpr_data/", 
         size=config["image_size"], 
         seq_len=config["val_seq_len"],
         track_sequences=True
     )
+
+    # val_dataset = TartanAirDataset(
+    #     root_dir="/kuacc/users/imelanlioglu21/comp447_project/tartanair_dataset/test_data/", 
+    #     size=config["image_size"], 
+    #     seq_len=config["val_seq_len"],
+    #     track_sequences=True
+    # )
     
     # Create subsets for faster training
     train_size = int(len(train_dataset) * config["train_subset_ratio"])
@@ -173,6 +207,16 @@ def setup_datasets(config, logger):
 def setup_model_and_optimizer(config, logger):
     if config["backbone"] == "dino_improved":
         pose_net = PoseNetDinoImproved(
+            model_size=config["model_size"],
+            freeze_dino=config["freeze"],
+        )
+    elif config["backbone"] == "dino_improved_contrastive_isolated":
+        pose_net = PoseNetDinoImprovedContrastiveIsolated(
+            model_size=config["model_size"],
+            freeze_dino=config["freeze"],
+        )
+    elif config["backbone"] == "dino_improved_contrastive":
+        pose_net = PoseNetDinoImprovedContrastive(
             model_size=config["model_size"],
             freeze_dino=config["freeze"],
         )
@@ -276,6 +320,7 @@ def train_epoch(pose_net, train_loader, optimizer, accelerator, config, epoch, l
         'total_loss': 0.0,
         'translation_loss': 0.0,
         'quaternion_loss': 0.0,
+        'contrastive_loss': 0.0,
     }
     
     if accelerator.is_local_main_process:
@@ -297,12 +342,21 @@ def train_epoch(pose_net, train_loader, optimizer, accelerator, config, epoch, l
         
         with accelerator.accumulate(pose_net):
             pred_translations, pred_rotations = pose_net(images)
-            
-            total_loss, loss_dict = pose_net.module.pose_loss(
-                pred_translations, pred_rotations, 
-                translations, rotations,
-                lambda_q=config["lambda_q"],
-            )
+            if config["backbone"] == "dino_improved_contrastive_isolated" or config["backbone"] == "dino_improved_contrastive":
+                pred_translations, pred_rotations, dino_proj, trans_proj = pose_net(images, return_contrastive_features=True)
+                total_loss, loss_dict = pose_net.module.pose_loss(
+                    pred_translations, pred_rotations, 
+                    translations, rotations,
+                    dino_proj, trans_proj,
+                    lambda_q=config["lambda_q"],
+                    lambda_contrastive=config["lambda_contrastive"]
+                )
+            else:
+                total_loss, loss_dict = pose_net.module.pose_loss(
+                    pred_translations, pred_rotations, 
+                    translations, rotations,
+                    lambda_q=config["lambda_q"],
+                )
             
             accelerator.backward(total_loss)
             
@@ -314,6 +368,8 @@ def train_epoch(pose_net, train_loader, optimizer, accelerator, config, epoch, l
         epoch_metrics['total_loss'] += loss_dict['total_loss']
         epoch_metrics['translation_loss'] += loss_dict['translation_loss']
         epoch_metrics['quaternion_loss'] += loss_dict['quaternion_loss']
+        if "contrastive_loss" in loss_dict:
+            epoch_metrics['contrastive_loss'] += loss_dict['contrastive_loss']
         num_batches += 1
         
         if accelerator.is_local_main_process:
@@ -331,6 +387,7 @@ def validate_epoch(pose_net, val_loader, accelerator, config, epoch, trajectory_
         'total_loss': 0.0,
         'translation_loss': 0.0,
         'quaternion_loss': 0.0,
+        'contrastive_loss': 0.0,
     }
     
     all_pred_translations = []
@@ -358,16 +415,27 @@ def validate_epoch(pose_net, val_loader, accelerator, config, epoch, trajectory_
             
             pred_translations, pred_rotations = pose_net(images)
             
-            loss, loss_dict = pose_net.module.pose_loss(
-                pred_translations, pred_rotations,
-                translations, rotations,
-                lambda_q=config["lambda_q"],
-            )
+            if config["backbone"] == "dino_improved_contrastive_isolated" or config["backbone"] == "dino_improved_contrastive":
+                pred_translations, pred_rotations, dino_proj, trans_proj = pose_net(images, return_contrastive_features=True)
+                loss, loss_dict = pose_net.module.pose_loss(
+                    pred_translations, pred_rotations,
+                    translations, rotations,
+                    dino_proj, trans_proj,
+                    lambda_q=config["lambda_q"],
+                    lambda_contrastive=config["lambda_contrastive"]
+                )
+            else:
+                loss, loss_dict = pose_net.module.pose_loss(
+                    pred_translations, pred_rotations,
+                    translations, rotations,
+                    lambda_q=config["lambda_q"],
+                )
             
             val_metrics['total_loss'] += loss_dict['total_loss']
             val_metrics['translation_loss'] += loss_dict['translation_loss']
             val_metrics['quaternion_loss'] += loss_dict['quaternion_loss']
-            
+            if "contrastive_loss" in loss_dict:
+                val_metrics['contrastive_loss'] += loss_dict['contrastive_loss']
             for b in range(batch_size):
                 try:
                     abs_t_pred, abs_q_pred = convert_relative_to_absolute_poses(
@@ -444,7 +512,7 @@ def validate_epoch(pose_net, val_loader, accelerator, config, epoch, trajectory_
 def save_and_log_results(pose_net, accelerator, config, final_sequence_metrics, train_losses, val_losses, logger, timestamp):
     if accelerator.is_main_process:
         unwrapped_model = accelerator.unwrap_model(pose_net)
-        model_path = f"pose_net_improved_per_sequence_{config['experiment_name']}_final.pth"
+        model_path = f"ebu/{config['experiment_name']}/final_model.pth"
         torch.save(unwrapped_model, model_path)
         
         if final_sequence_metrics and config["evaluate_per_sequence"]:
@@ -465,7 +533,7 @@ def save_and_log_results(pose_net, accelerator, config, final_sequence_metrics, 
             logger.info(f"  Max ATE: {agg_metrics.get('ATE_max_across_sequences', 'N/A'):.4f}")
             logger.info(f"  Valid sequences: {agg_metrics.get('num_valid_sequences', 0)}/{agg_metrics.get('num_total_sequences', 0)}")
             
-            final_metrics_path = f"ebu/improved_posenet_per_seq/final_metrics_{config['experiment_name']}_{timestamp}.json"
+            final_metrics_path = f"ebu/{config['experiment_name']}/final_metrics_{timestamp}.json"
             with open(final_metrics_path, 'w') as f:
                 json.dump(final_sequence_metrics, f, indent=2, default=str)
             logger.info(f"Final metrics saved to: {final_metrics_path}")
@@ -482,7 +550,8 @@ def save_and_log_results(pose_net, accelerator, config, final_sequence_metrics, 
                 "final/num_valid_sequences": agg_metrics.get('num_valid_sequences', 0),
             })
             
-            wandb.log(final_log_dict)
+            if config.get("log_wandb", False):
+                wandb.log(final_log_dict)
         
         plt.figure(figsize=(15, 5))
         
@@ -525,27 +594,37 @@ def save_and_log_results(pose_net, accelerator, config, final_sequence_metrics, 
             plt.title("Final ATE per Sequence")
         
         plt.tight_layout()
-        plot_path = f"training_curves_per_sequence_{config['experiment_name']}.png"
+        plot_path = f"ebu/{config['experiment_name']}/training_curves.png"
         plt.savefig(plot_path, dpi=300, bbox_inches='tight')
         
-        wandb.log({"training_curves": wandb.Image(plot_path)})
+        if config.get("log_wandb", False):
+            wandb.log({"training_curves": wandb.Image(plot_path)})
 
 def run_experiment(config):
     """Run a single experiment with the given configuration"""
-    try:
-        wandb.login(key="fb69f02bed97fefd3f9a152ab12abb8b32896b3d")
-    except Exception as e:
-        print(f"Warning: wandb login failed: {e}")
-        print("You can set WANDB_API_KEY environment variable or run 'wandb login' manually")
+    if config.get("log_wandb", False):
+        try:
+            wandb.login(key="fb69f02bed97fefd3f9a152ab12abb8b32896b3d")
+        except Exception as e:
+            print(f"Warning: wandb login failed: {e}")
+            print("You can set WANDB_API_KEY environment variable or run 'wandb login' manually")
     
     ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
 
-    accelerator = Accelerator(
-        gradient_accumulation_steps=1,
-        mixed_precision="fp16",
-        log_with="wandb",
-        kwargs_handlers=[ddp_kwargs]
-    )
+    # Conditionally set up accelerator with or without wandb logging
+    if config.get("log_wandb", False):
+        accelerator = Accelerator(
+            gradient_accumulation_steps=1,
+            mixed_precision="fp16",
+            log_with="wandb",
+            kwargs_handlers=[ddp_kwargs]
+        )
+    else:
+        accelerator = Accelerator(
+            gradient_accumulation_steps=1,
+            mixed_precision="fp16",
+            kwargs_handlers=[ddp_kwargs]
+        )
     
     logger = setup_logging(accelerator)
     
@@ -553,11 +632,14 @@ def run_experiment(config):
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         run_name = f"{config['experiment_name']}-PoseNet-PerSeq-{accelerator.num_processes}GPUs-{timestamp}"
         
-        wandb.init(
-            project="diffposenet-per-sequence",
-            name=run_name,
-            config=config
-        )
+        if config.get("log_wandb", False):
+            wandb.init(
+                project="diffposenet-per-sequence",
+                name=run_name,
+                config=config
+            )
+        else:
+            logger.info(f"W&B logging disabled. Run name: {run_name}")
         
         os.makedirs(f"ebu/{config['experiment_name']}/configs", exist_ok=True)
         save_config(config, f"ebu/{config['experiment_name']}/configs/config_{config['experiment_name']}_{timestamp}.json")
@@ -604,6 +686,7 @@ def run_experiment(config):
                 "train/total_loss": epoch_metrics['total_loss'],
                 "train/translation_loss": epoch_metrics['translation_loss'],
                 "train/quaternion_loss": epoch_metrics['quaternion_loss'],
+                "train/contrastive_loss": epoch_metrics['contrastive_loss']
             }
             
             if (epoch + 1) % config["eval_every"] == 0:
@@ -611,6 +694,7 @@ def run_experiment(config):
                     "val/total_loss": val_metrics['total_loss'],
                     "val/translation_loss": val_metrics['translation_loss'],
                     "val/quaternion_loss": val_metrics['quaternion_loss'],
+                    "val/contrastive_loss": val_metrics['contrastive_loss']
                 })
                 
                 if sequence_metrics and config["evaluate_per_sequence"]:
@@ -630,7 +714,8 @@ def run_experiment(config):
                         if 'ATE_RMSE' in metrics:
                             log_dict[f"val/ATE_{seq_name}"] = metrics['ATE_RMSE']
             
-            wandb.log(log_dict)
+            if config.get("log_wandb", False):
+                wandb.log(log_dict)
             
             log_message = (
                 f"Epoch {epoch+1}/{config['epochs']} - "
@@ -683,6 +768,7 @@ def run_experiment(config):
                     'model_state_dict': unwrapped_model.state_dict(),
                     'optimizer_state_dict': unwrapped_optimizer.state_dict(),
                     'val_loss': val_metrics['total_loss'],
+                    'contrastive_loss': val_metrics['contrastive_loss'] if 'contrastive_loss' in val_metrics else -1,
                     'config': config
                 }
                 
@@ -694,7 +780,8 @@ def run_experiment(config):
         save_and_log_results(pose_net, accelerator, config, final_sequence_metrics, train_losses, val_losses, logger, timestamp)
         
         logger.info(f"Training {config['experiment_name']} completed successfully!")
-        wandb.finish()
+        if config.get("log_wandb", False):
+            wandb.finish()
     
     accelerator.wait_for_everyone()
     
@@ -712,8 +799,10 @@ def main():
     if args.config_idx is not None:
         if 0 <= args.config_idx < len(configs):
             print(f"Running single experiment: {configs[args.config_idx]['experiment_name']}")
+            os.makedirs(f"ebu/{configs[args.config_idx]['experiment_name']}", exist_ok=True)
             os.makedirs(f"ebu/{configs[args.config_idx]['experiment_name']}/checkpoints", exist_ok=True)
             os.makedirs(f"ebu/{configs[args.config_idx]['experiment_name']}/configs", exist_ok=True)
+            os.makedirs(f"ebu/{configs[args.config_idx]['experiment_name']}/logs", exist_ok=True)
             model = run_experiment(configs[args.config_idx])
         else:
             print(f"Invalid config index {args.config_idx}. Available indices: 0-{len(configs)-1}")
