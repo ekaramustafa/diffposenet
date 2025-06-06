@@ -4,6 +4,7 @@ import torch.nn.functional as F
 from torch.autograd import grad
 from nflownet.utils import compute_image_gradients
 import kornia
+from torchvision import transforms
 
 class CheiralityLayer(nn.Module):
     def __init__(self, posenet, nflownet):
@@ -145,8 +146,17 @@ class CheiralityLayer(nn.Module):
 
     def forward(self, img_pair):
 
+
+        transform = transforms.Compose([
+            transforms.Resize((224, 224)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        ])
+        
+        pose_img = transform(img_pair)
         # Coarse pose from PoseNet
-        translation, rotation = self.posenet(img_pair)
+        print(pose_img.shape)
+        translation, rotation = self.posenet(pose_img)
         q_flat = rotation.reshape(-1, 4)
         # Convert to rotation vector (axis-angle): [B * T, 3]
         rotvec_flat = kornia.geometry.quaternion_to_axis_angle(q_flat)
@@ -155,10 +165,6 @@ class CheiralityLayer(nn.Module):
         rotation = rotvec_flat.view(rotation.shape[0], rotation.shape[1], 3)
         Pec = torch.cat([translation, rotation], dim=-1) 
         
-        # Dont look here because ı am gonna change dataset here for sake of trying ı added these things to pass to nflownet
-        img_pair = img_pair.view(1, 2 * 3, 224, 224)
-        img_pair = F.interpolate(img_pair, size=(480, 640), mode='bilinear', align_corners=False)
-
         nflow_pred = self.nflownet(img_pair)
         gray = img_pair[:, :3].mean(1, keepdim=True)
         grad_dirs = compute_image_gradients(gray)  # [B, 2, H, W]
