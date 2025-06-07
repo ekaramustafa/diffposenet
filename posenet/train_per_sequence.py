@@ -86,14 +86,22 @@ def get_experiment_configs():
         #     "experiment_name": "cvpr_quaternion_dino_improved_frozen",
         #     "model_size": "base"
         # },
-        {
-            **base_config,
-            "backbone": "dino_improved_contrastive_isolated",
-            "freeze": True,
-            "experiment_name": "cvpr_0.01_quaternion_dino_improved_isolated_contrastive_frozen",
-            "model_size": "base",
-            "lambda_contrastive": 0.01,
-        },
+        # {
+        #     **base_config,
+        #     "backbone": "dino_improved_contrastive_isolated",
+        #     "freeze": True,
+        #     "experiment_name": "cvpr_0.01_quaternion_dino_improved_isolated_contrastive_frozen",
+        #     "model_size": "base",
+        #     "lambda_contrastive": 0.01,
+        # },
+        # {
+        #     **base_config,
+        #     "backbone": "dino_improved_contrastive",
+        #     "freeze": True,
+        #     "experiment_name": "cvpr_0.01_quaternion_dino_improved_contrastive_frozen",
+        #     "model_size": "base",
+        #     "lambda_contrastive": 0.01,
+        # },
         {
             **base_config,
             "backbone": "dino_improved_contrastive",
@@ -145,11 +153,14 @@ def get_experiment_configs():
 
 def setup_datasets(config, logger):
     logger.info("============= Loading Datasets =============")
+    
+    train_track_sequences = config["backbone"] == "dino_improved_contrastive"
+    
     train_dataset = TartanAirDataset(
         root_dir="/kuacc/users/imelanlioglu21/comp447_project/tartanair_dataset/train_data/", 
         size=config["image_size"], 
         seq_len=config["train_seq_len"],
-        track_sequences=False,
+        track_sequences=train_track_sequences,
         skip=config["skip"]
     )
     
@@ -341,8 +352,7 @@ def train_epoch(pose_net, train_loader, optimizer, accelerator, config, epoch, l
         optimizer.zero_grad()
         
         with accelerator.accumulate(pose_net):
-            pred_translations, pred_rotations = pose_net(images)
-            if config["backbone"] == "dino_improved_contrastive_isolated" or config["backbone"] == "dino_improved_contrastive":
+            if config["backbone"] == "dino_improved_contrastive_isolated":
                 pred_translations, pred_rotations, dino_proj, trans_proj = pose_net(images, return_contrastive_features=True)
                 total_loss, loss_dict = pose_net.module.pose_loss(
                     pred_translations, pred_rotations, 
@@ -351,7 +361,57 @@ def train_epoch(pose_net, train_loader, optimizer, accelerator, config, epoch, l
                     lambda_q=config["lambda_q"],
                     lambda_contrastive=config["lambda_contrastive"]
                 )
+            elif config["backbone"] == "dino_improved_contrastive":
+                # Simple batch-wise positive/negative sampling
+                batch_size = images.shape[0]
+                
+                # Access the underlying dataset if using Subset
+                actual_dataset = train_loader.dataset
+                if hasattr(train_loader.dataset, 'dataset'):
+                    actual_dataset = train_loader.dataset.dataset
+                
+                # Get random positive and negative samples for the whole batch
+                positive_samples = []
+                negative_samples = []
+                
+                for i in range(batch_size):
+                    if hasattr(actual_dataset, 'get_positive_sample') and hasattr(actual_dataset, 'get_negative_sample'):
+                        # Use random indices for sampling - much simpler!
+                        pos_idx = torch.randint(0, len(actual_dataset), (1,)).item()
+                        neg_idx = torch.randint(0, len(actual_dataset), (1,)).item()
+                        
+                        pos_sample = actual_dataset.get_positive_sample(pos_idx)
+                        neg_sample = actual_dataset.get_negative_sample(neg_idx)
+                        
+                        if pos_sample is not None and neg_sample is not None:
+                            positive_samples.append(pos_sample)
+                            negative_samples.append(neg_sample)
+                        else:
+                            # Fallback: use shifted samples from current batch
+                            positive_samples.append(images[(i + 1) % batch_size])
+                            negative_samples.append(images[(i + 2) % batch_size])
+                            logger.info(f"No positive or negative sample found for index {i}")
+                    else:
+                        # Fallback: use shifted samples from current batch
+                        positive_samples.append(images[(i + 1) % batch_size])
+                        negative_samples.append(images[(i + 2) % batch_size])
+                        logger.info(f"No positive or negative sample found for index {i}")
+                
+                positive_samples = torch.stack(positive_samples).to(images.device)
+                negative_samples = torch.stack(negative_samples).to(images.device)
+                
+                # Forward pass with contrastive features
+                pred_translations, pred_rotations, anchor_feats = pose_net(images, return_contrastive_features=True)
+                
+                total_loss, loss_dict = pose_net.module.pose_loss(
+                    pred_translations, pred_rotations, 
+                    translations, rotations,
+                    anchor_feats, positive_samples, negative_samples,
+                    lambda_q=config["lambda_q"],
+                    lambda_contrastive=config["lambda_contrastive"]
+                )
             else:
+                pred_translations, pred_rotations = pose_net(images)
                 total_loss, loss_dict = pose_net.module.pose_loss(
                     pred_translations, pred_rotations, 
                     translations, rotations,
@@ -404,7 +464,7 @@ def validate_epoch(pose_net, val_loader, accelerator, config, epoch, trajectory_
     num_val_batches = 0
     
     with torch.no_grad():
-        for batch_data in progress_bar:
+        for batch_idx, batch_data in enumerate(progress_bar):
             if len(batch_data) == 4:
                 images, translations, rotations, sequence_names = batch_data
             else:
@@ -413,9 +473,7 @@ def validate_epoch(pose_net, val_loader, accelerator, config, epoch, trajectory_
             
             batch_size, seq_len = images.shape[:2]
             
-            pred_translations, pred_rotations = pose_net(images)
-            
-            if config["backbone"] == "dino_improved_contrastive_isolated" or config["backbone"] == "dino_improved_contrastive":
+            if config["backbone"] == "dino_improved_contrastive_isolated":
                 pred_translations, pred_rotations, dino_proj, trans_proj = pose_net(images, return_contrastive_features=True)
                 loss, loss_dict = pose_net.module.pose_loss(
                     pred_translations, pred_rotations,
@@ -424,7 +482,63 @@ def validate_epoch(pose_net, val_loader, accelerator, config, epoch, trajectory_
                     lambda_q=config["lambda_q"],
                     lambda_contrastive=config["lambda_contrastive"]
                 )
+            elif config["backbone"] == "dino_improved_contrastive":
+                pred_translations, pred_rotations = pose_net(images)
+                loss, loss_dict = pose_net.module.__class__.__bases__[0].pose_loss(
+                    pose_net.module, pred_translations, pred_rotations,
+                    translations, rotations, lambda_q=config["lambda_q"]
+                )
+                loss_dict["contrastive_loss"] = 0.0  # For logging consistency
+                # # Simple batch-wise positive/negative sampling for validation
+                # batch_size = images.shape[0]
+                
+                # # Access the underlying dataset if using Subset
+                # actual_dataset = val_loader.dataset
+                # if hasattr(val_loader.dataset, 'dataset'):
+                #     actual_dataset = val_loader.dataset.dataset
+                
+                # # Get random positive and negative samples for the whole batch
+                # positive_samples = []
+                # negative_samples = []
+                
+                # for i in range(batch_size):
+                #     if hasattr(actual_dataset, 'get_positive_sample') and hasattr(actual_dataset, 'get_negative_sample'):
+                #         # Use random indices for sampling - much simpler!
+                #         pos_idx = torch.randint(0, len(actual_dataset), (1,)).item()
+                #         neg_idx = torch.randint(0, len(actual_dataset), (1,)).item()
+                        
+                #         pos_sample = actual_dataset.get_positive_sample(pos_idx)
+                #         neg_sample = actual_dataset.get_negative_sample(neg_idx)
+                        
+                #         if pos_sample is not None and neg_sample is not None:
+                #             positive_samples.append(pos_sample)
+                #             negative_samples.append(neg_sample)
+                #         else:
+                #             # Fallback: use shifted samples from current batch
+                #             positive_samples.append(images[(i + 1) % batch_size])
+                #             negative_samples.append(images[(i + 2) % batch_size])
+                #             logger.info(f"No positive or negative sample found for index {i}")
+                #     else:
+                #         # Fallback: use shifted samples from current batch
+                #         positive_samples.append(images[(i + 1) % batch_size])
+                #         negative_samples.append(images[(i + 2) % batch_size])
+                #         logger.info(f"No positive or negative sample found for index {i}")
+                
+                # positive_samples = torch.stack(positive_samples).to(images.device)
+                # negative_samples = torch.stack(negative_samples).to(images.device)
+                
+                # # Forward pass with contrastive features
+                # pred_translations, pred_rotations, anchor_feats = pose_net(images, return_contrastive_features=True)
+                
+                # loss, loss_dict = pose_net.module.pose_loss(
+                #     pred_translations, pred_rotations,
+                #     translations, rotations,
+                #     anchor_feats, positive_samples, negative_samples,
+                #     lambda_q=config["lambda_q"],
+                #     lambda_contrastive=config["lambda_contrastive"]
+                # )
             else:
+                pred_translations, pred_rotations = pose_net(images)
                 loss, loss_dict = pose_net.module.pose_loss(
                     pred_translations, pred_rotations,
                     translations, rotations,

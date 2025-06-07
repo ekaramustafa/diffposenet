@@ -5,6 +5,7 @@ from torch.utils.data import Dataset
 from torchvision import transforms
 from PIL import Image
 import logging
+import random
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +55,7 @@ class TartanAirDataset(Dataset):
         # load poses only once (small memory footprint)
         self.poses = self._read_ground_truth(self.pose_files)
 
+
     def _collect_files(self):
         """Collect all image and pose files from the directory structure"""
         for envs_dir in sorted(os.listdir(self.root_dir)):
@@ -73,15 +75,15 @@ class TartanAirDataset(Dataset):
                             continue
                             
                         traj_path = os.path.join(difficulty_path, traj_dir)
-                        logger.debug(f"Processing trajectory: {traj_dir}")
-                        
-                        for traj in sorted(os.listdir(traj_path)):
+                        logger.info(f"Processing trajectory: {traj_dir}")
+                        logger.info(f"Processing trajectory path: {traj_path}")
+                        for traj in sorted(os.listdir(traj_path)): # P000, P001, P002, ...
                             file_path = os.path.join(traj_path, traj)
-                            if os.path.isdir(file_path):
+                            if os.path.isdir(file_path): #image_lefts
                                 for image in sorted(os.listdir(file_path)):
                                     if image.endswith(".png"):
                                         self.image_files.append(os.path.join(file_path, image))
-                            if file_path.endswith("left.txt"):
+                            if file_path.endswith("left.txt"): #pose_left.txt
                                 self.pose_files.append(file_path)
 
     def _create_sequence_mapping_and_boundaries(self):
@@ -90,25 +92,43 @@ class TartanAirDataset(Dataset):
         self.sequence_names = []
         self.sequence_boundaries = {}
         
+        # Also track environment-wise boundaries for negative sampling
+        self.environment_mapping = ['unknown'] * len(self.image_files)
+        self.environment_boundaries = {}
+        
         # Group images by sequence name based on file paths
         sequence_groups = {}
+        environment_groups = {}
+        
         for i, img_path in enumerate(self.image_files):
             # Extract sequence name from path
             # Assuming path structure like: .../environment/Easy/trajectory_name/...
             path_parts = img_path.split(os.sep)
-            sequence_name = None
+            environment_name = None
+            trajectory_name = None
             
-            # Find the trajectory directory name (comes after "Easy")
+            # Find environment and trajectory names
             for j, part in enumerate(path_parts):
-                if part == "Easy" and j + 1 < len(path_parts):
-                    sequence_name = path_parts[j + 1]
+                if part == "Easy" and j >= 1 and j + 1 < len(path_parts):
+                    environment_name = path_parts[j - 1]  # Environment comes before "Easy"
+                    trajectory_name = path_parts[j + 1]   # Trajectory comes after "Easy"
                     break
             
-            if sequence_name and not sequence_name.startswith("ME"):
-                if sequence_name not in sequence_groups:
-                    sequence_groups[sequence_name] = []
-                sequence_groups[sequence_name].append(i)
-                self.sequence_mapping[i] = sequence_name
+            if environment_name and trajectory_name and not trajectory_name.startswith("ME"):
+                # Create unique sequence identifier: environment/Easy/trajectory
+                full_sequence_name = f"{environment_name}/Easy/{trajectory_name}"
+                
+                # Group by full sequence name
+                if full_sequence_name not in sequence_groups:
+                    sequence_groups[full_sequence_name] = []
+                sequence_groups[full_sequence_name].append(i)
+                self.sequence_mapping[i] = full_sequence_name
+                
+                # Group by environment for negative sampling
+                if environment_name not in environment_groups:
+                    environment_groups[environment_name] = []
+                environment_groups[environment_name].append(i)
+                self.environment_mapping[i] = environment_name
         
         # Create sequence names list and boundaries
         for seq_name, indices in sequence_groups.items():
@@ -123,10 +143,21 @@ class TartanAirDataset(Dataset):
                     'indices': sorted(indices)
                 }
         
+        # Create environment boundaries for negative sampling
+        for env_name, indices in environment_groups.items():
+            if indices:
+                self.environment_boundaries[env_name] = {
+                    'start': min(indices),
+                    'end': max(indices),
+                    'length': len(indices),
+                    'indices': sorted(indices)
+                }
+        
         # Sort sequence names for consistency
         self.sequence_names.sort()
         
         logger.debug(f"Created sequence boundaries: {self.sequence_boundaries}")
+        logger.debug(f"Created environment boundaries: {self.environment_boundaries}")
 
     def get_sequence_for_index(self, idx):
         """Get sequence name for a given data index"""
@@ -136,11 +167,25 @@ class TartanAirDataset(Dataset):
             return self.sequence_mapping[idx]
         return None
 
+    def get_environment_for_index(self, idx):
+        """Get environment name for a given data index"""
+        if not self.track_sequences:
+            return None
+        if idx < len(self.environment_mapping):
+            return self.environment_mapping[idx]
+        return None
+
     def get_sequence_boundaries(self):
         """Get sequence boundaries for per-sequence evaluation"""
         if not self.track_sequences:
             return None
         return self.sequence_boundaries.copy()
+
+    def get_environment_boundaries(self):
+        """Get environment boundaries for negative sampling"""
+        if not self.track_sequences:
+            return None
+        return self.environment_boundaries.copy()
 
     def get_sequence_names(self):
         """Get list of all sequence names"""
@@ -179,6 +224,140 @@ class TartanAirDataset(Dataset):
             return image_seq, translations, rotations, sequence_name
         else:
             return image_seq, translations, rotations
+
+    def get_positive_sample(self, idx):
+        """Get a positive sample for the given index (nearby frames from same sequence)"""
+        if not self.track_sequences:
+            logger.warning("Sequence tracking not enabled, cannot get positive sample")
+            return None
+            
+        # Get sequence name for this index
+        sequence_name = self.get_sequence_for_index(idx)
+        if not sequence_name or sequence_name == 'unknown':
+            logger.warning(f"No valid sequence found for index {idx}")
+            return None
+            
+        # Get sequence boundaries
+        if sequence_name not in self.sequence_boundaries:
+            logger.warning(f"Sequence {sequence_name} not found in boundaries")
+            return None
+            
+        seq_info = self.sequence_boundaries[sequence_name]
+        seq_indices = seq_info['indices']
+        
+        # Find current index position in sequence
+        try:
+            current_pos = seq_indices.index(idx)
+        except ValueError:
+            logger.warning(f"Index {idx} not found in sequence {sequence_name}")
+            return None
+        
+        # Try to get positive sample at idx + seq_len (right after current sequence)
+        positive_idx = idx + self.seq_len
+        
+        # If goes out of sequence bounds, try going backwards
+        if positive_idx >= seq_info['end'] or positive_idx not in seq_indices:
+            positive_idx = idx - self.seq_len
+            
+            # If still out of bounds, wrap to beginning of sequence
+            if positive_idx < seq_info['start'] or positive_idx not in seq_indices:
+                # Find a valid index at the beginning
+                positive_idx = seq_info['start']
+                
+                # Make sure it doesn't overlap with current sample
+                while positive_idx < idx + self.seq_len and positive_idx in seq_indices:
+                    positive_idx += 1
+                    
+                # If we've gone too far, just use the start
+                if positive_idx >= seq_info['end']:
+                    positive_idx = seq_info['start']
+        
+        # Ensure we have enough frames for a complete sequence
+        if positive_idx + (self.seq_len - 1) * self.skip >= len(self.image_files):
+            # Use the latest possible start index
+            positive_idx = len(self.image_files) - self.seq_len
+            
+        try:
+            # Get image sequence for positive sample
+            image_seq = []
+            for i in range(self.seq_len):
+                img_idx = positive_idx + i * self.skip
+                img = Image.open(self.image_files[img_idx]).convert("RGB")
+                if self.transform:
+                    img = self.transform(img)
+                image_seq.append(img)
+            image_seq = torch.stack(image_seq, dim=0)
+            
+            return image_seq
+            
+        except Exception as e:
+            logger.warning(f"Error creating positive sample: {e}")
+            return None
+
+    def get_negative_sample(self, idx):
+        """Get a negative sample for the given index (from different environment)"""
+        if not self.track_sequences:
+            logger.warning("Sequence tracking not enabled, cannot get negative sample")
+            return None
+            
+        # Get environment name for this index
+        current_env = self.get_environment_for_index(idx)
+        if not current_env or current_env == 'unknown':
+            logger.warning(f"No valid environment found for index {idx}")
+            return None
+            
+        # Get all available environments
+        available_envs = list(self.environment_boundaries.keys())
+        if len(available_envs) <= 1:
+            logger.warning("Only one environment available, cannot get negative sample")
+            return None
+            
+        # Choose a different environment randomly
+        different_envs = [env for env in available_envs if env != current_env]
+        if not different_envs:
+            logger.warning("No different environments available")
+            return None
+            
+        negative_env = random.choice(different_envs)
+        
+        # Get random index from the different environment
+        env_info = self.environment_boundaries[negative_env]
+        env_indices = env_info['indices']
+        
+        # Choose random starting index that allows for complete sequence
+        max_start_idx = len(env_indices) - self.seq_len
+        if max_start_idx <= 0:
+            logger.warning(f"Environment {negative_env} doesn't have enough frames")
+            return None
+            
+        random_pos = random.randint(0, max_start_idx - 1)
+        negative_idx = env_indices[random_pos]
+        
+        # Ensure we have enough frames for a complete sequence
+        if negative_idx + (self.seq_len - 1) * self.skip >= len(self.image_files):
+            # Use the latest possible start index from this environment
+            valid_indices = [i for i in env_indices if i + (self.seq_len - 1) * self.skip < len(self.image_files)]
+            if not valid_indices:
+                logger.warning(f"No valid indices for negative sample in environment {negative_env}")
+                return None
+            negative_idx = random.choice(valid_indices)
+        
+        try:
+            # Get image sequence for negative sample
+            image_seq = []
+            for i in range(self.seq_len):
+                img_idx = negative_idx + i * self.skip
+                img = Image.open(self.image_files[img_idx]).convert("RGB")
+                if self.transform:
+                    img = self.transform(img)
+                image_seq.append(img)
+            image_seq = torch.stack(image_seq, dim=0)
+            
+            return image_seq
+            
+        except Exception as e:
+            logger.warning(f"Error creating negative sample: {e}")
+            return None
 
     def _compute_relative_pose(self, pose1, pose2):
         t1 = np.array(pose1[:3])

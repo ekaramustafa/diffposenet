@@ -4,9 +4,10 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from dataset.tartanair import TartanAirDataset
 from torch.utils.data import DataLoader, Subset
 import logging
-from model import PoseNetDinoImprovedContrastive
 
 logger = logging.getLogger(__name__)
+
+logger.setLevel(logging.INFO)
 
 config = {
     "image_size": (224, 224),
@@ -80,17 +81,17 @@ val_loader = DataLoader(
 )
 
 
-model = PoseNetDinoImprovedContrastive(model_size='base', freeze_dino=True)
+# model = PoseNetDinoImprovedContrastive(model_size='base', freeze_dino=True)
 
-for batch in train_loader:
-    images, t_gt, q_gt = batch
-    t_pred, q_pred, dino_proj, trans_proj = model(images, return_contrastive_features=True)
-    loss = model.pose_loss(t_pred, q_pred, t_gt, q_gt, dino_proj, trans_proj)
-    print("loss: ", loss)
+# for batch in train_loader:
+#     images, t_gt, q_gt = batch
+#     t_pred, q_pred, dino_proj, trans_proj = model(images, return_contrastive_features=True)
+#     loss = model.pose_loss(t_pred, q_pred, t_gt, q_gt, dino_proj, trans_proj)
+#     print("loss: ", loss)
 
-    print("t_pred.shape: ", t_pred.shape)
-    print("q_pred.shape: ", q_pred.shape)
-    print("dino_proj.shape: ", dino_proj.shape)
-    print("trans_proj.shape: ", trans_proj.shape)
+#     print("t_pred.shape: ", t_pred.shape)
+#     print("q_pred.shape: ", q_pred.shape)
+#     print("dino_proj.shape: ", dino_proj.shape)
+#     print("trans_proj.shape: ", trans_proj.shape)
 
-    break
+#     break
