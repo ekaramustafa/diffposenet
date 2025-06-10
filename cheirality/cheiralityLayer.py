@@ -46,16 +46,16 @@ class CheiralityLayer(nn.Module):
 
         # Gradient directions
         grad_x, grad_y = grad_dirs[:, 0, :, :], grad_dirs[:, 1, :, :]
-        gx = torch.stack([grad_x, grad_y], dim=-1).view(B, H*W, 2)  # [B, H*W, 2]
-        gx_unit = F.normalize(gx, dim=-1)  # [B, H*W, 2]
+        gx = torch.stack([grad_x, grad_y], dim=-1).view(B, H * W, 2)  # [B, H*W, 2]
+        gx_unit = F.normalize(gx, dim=-1)  # Birim vektörler [B, H*W, 2]
 
         # Normal flow: [B, 2, H, W] -> [B, H*W, 2]
-        nf = normal_flow.permute(0, 2, 3, 1).reshape(B, H*W, 2)
+        nf = normal_flow.permute(0, 2, 3, 1).reshape(B, H * W, 2)  # [B, H*W, 2]
 
-        n_flow_scalar = torch.norm(nf, dim=-1)  # [B, H*W]
+        n_flow_scalar = torch.norm(nf, dim=-1)   # [B, H*W]
 
         # gA = gx · A → [B, H*W, 3]
-        gA = torch.einsum('bpi,pij->bpj', gx_unit, A)
+        gA = torch.einsum('bpi,pij->bpj', gx_unit, A) 
 
         # gB = gx · B → [B, H*W, 3]
         gB = torch.einsum('bpi,pij->bpj', gx_unit, B_mat)
@@ -73,27 +73,42 @@ class CheiralityLayer(nn.Module):
         return loss
 
     def refine_pose(self, img_pair_shape, Pec, grad_dirs, normal_flow):
-        B = Pec.shape[0]
-        Per = Pec.clone().detach().requires_grad_(True)
+        device = Pec.device
 
-        optimizer = torch.optim.LBFGS([Per], max_iter=100, line_search_fn="strong_wolfe")
+        # Separate V and Omega with gradients
+        V = Pec[:, :, :3].clone().detach().requires_grad_(True)       # [B, 1, 3]
+        Omega = Pec[:, :, 3:].clone().detach().requires_grad_(True)   # [B, 1, 3]
 
-        def closure():
-            optimizer.zero_grad()
-            loss = self.cheirality_loss(img_pair_shape, Per, grad_dirs, normal_flow, Pec.device)
-            loss.backward() 
-            torch.nn.utils.clip_grad_norm_([Per], max_norm=100)
+        # 1. Optimize Omega while keeping V fixed
+        optimizer_Omega = torch.optim.LBFGS([Omega], max_iter=100, line_search_fn="strong_wolfe")
+
+        def closure_Omega():
+            optimizer_Omega.zero_grad()
+            pose = torch.cat([V.detach(), Omega], dim=-1)  # V is fixed
+            loss = self.cheirality_loss(img_pair_shape, pose, grad_dirs, normal_flow, device)
+            loss.backward()
             return loss
 
-        optimizer.step(closure)
+        optimizer_Omega.step(closure_Omega)
 
-        # Cheirality loss after refinement
-        loss_cheirality = self.cheirality_loss(img_pair_shape, Per, grad_dirs, normal_flow, Pec.device)
+        # 2. Optimize V while keeping Omega fixed
+        optimizer_V = torch.optim.LBFGS([V], max_iter=100, line_search_fn="strong_wolfe")
 
-        # Compute dL/dPer (gradient of cheirality loss wrt Per)
-        grad_cheirality = grad(loss_cheirality, Per, create_graph=True)[0]  # shape: [B, 6]
+        def closure_V():
+            optimizer_V.zero_grad()
+            pose = torch.cat([V, Omega.detach()], dim=-1)  # Omega is fixed
+            loss = self.cheirality_loss(img_pair_shape, pose, grad_dirs, normal_flow, device)
+            loss.backward()
+            return loss
 
-        return Per.detach().requires_grad_(), grad_cheirality
+        optimizer_V.step(closure_V)
+
+        Per = torch.cat([V, Omega], dim=-1)  # Do NOT detach here
+        loss_cheirality = self.cheirality_loss(img_pair_shape, Per, grad_dirs, normal_flow, device)
+        grad_cheirality = torch.autograd.grad(loss_cheirality, [V, Omega], create_graph=True)
+        grad_cheirality_combined = torch.cat([grad_cheirality[0], grad_cheirality[1]], dim=-1)
+
+        return Per.detach().requires_grad_(), grad_cheirality_combined
 
     def upper_level_loss(self, img_pair_shape, Pec, Per, n_flow_pred, grad_dirs, device):
         B, _, H, W = img_pair_shape
@@ -138,7 +153,7 @@ class CheiralityLayer(nn.Module):
         return loss
 
 
-    def forward(self, img_pair):
+    def forward(self, img_pair,translation_ground, rotation_ground):
         img1, img2,img3,img4,img5,img6 = torch.chunk(img_pair, chunks=6, dim=1)
 
         # Remove the singleton dimension (1) at dim=1
@@ -167,6 +182,8 @@ class CheiralityLayer(nn.Module):
 
     
         translation, rotation = self.posenet(pose_img)
+        translation = translation_ground.detach().clone().requires_grad_().to(img_pair.device)
+        rotation = rotation_ground.detach().clone().requires_grad_().to(img_pair.device)
         translation = translation[:,:1,:]
         rotation = rotation[:,:1,:]
         q_flat = rotation.reshape(-1, 4)
@@ -180,20 +197,21 @@ class CheiralityLayer(nn.Module):
         img_pair = img_pair.view(1, 2 * 3, 480, 640)
         nflow_pred = self.nflownet(img_pair)
         nflow_pred = nflow_pred[:, :, 1:-1, 1:-1]  # [1, 2, 478, 638]
-        gray = nflow_pred[:, :3].mean(1, keepdim=True)
-        grad_dirs = compute_image_gradients(gray)  # [B, 2, H, W]
+        gray = img1[:, :3].mean(1, keepdim=True)  # Convert to grayscale
 
+        # Define Sobel kernels
+        sobel_x = torch.tensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]],
+                            dtype=torch.float32, device=img1.device).view(1, 1, 3, 3)
+        sobel_y = torch.tensor([[-1, -2, -1], [0, 0, 0], [1, 2, 1]],
+                            dtype=torch.float32, device=img1.device).view(1, 1, 3, 3)
 
-        sobel_x = torch.tensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], dtype=torch.float32, device=img1.device).view(1, 1, 3, 3)
-        sobel_y = torch.tensor([[-1, -2, -1], [0, 0, 0], [1, 2, 1]], dtype=torch.float32, device=img1.device).view(1, 1, 3, 3)
-        
-        # Compute gradients for both images and average
-        grad_x1 = F.conv2d(nflow_pred[:, 0:1, :, :], sobel_x, padding=1)
-        grad_y1 = F.conv2d(nflow_pred[:, 0:1, :, :], sobel_y, padding=1)
-        grad_x2 = F.conv2d(nflow_pred[:, 1:2, :, :], sobel_x, padding=1)
-        grad_y2 = F.conv2d(nflow_pred[:, 1:2, :, :], sobel_y, padding=1)
+        # Compute gradients (center crop optional if needed for consistency)
+        gray_cropped = gray[:, :, 1:-1, 1:-1]  # optional: match original behavior
+        grad_x = F.conv2d(gray_cropped, sobel_x, padding=1)
+        grad_y = F.conv2d(gray_cropped, sobel_y, padding=1)
 
-        image_gradients = 0.5 * (torch.cat([grad_x1, grad_y1], dim=1) + torch.cat([grad_x2, grad_y2], dim=1))  # [B, 2, H, W]
+        # Concatenate gradients to form the final gradient tensor
+        image_gradients = torch.cat([grad_x, grad_y], dim=1) # [B, 2, H, W]
         img_rand = torch.rand(1, 6, 478, 638)
         img_pair_shape = img_rand.shape
         # Lower-level: refine using cheirality
